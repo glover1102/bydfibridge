@@ -52,14 +52,18 @@ const evenSplitTakeProfits = (qty: number, takeProfits: TakeProfitLevel[], step:
 };
 
 export class RiskEngine {
-  constructor(private readonly config: AppConfig, private readonly tradeStore: Pick<TradeStore, 'getDailyPnl'>) {}
+  constructor(
+    private readonly config: AppConfig,
+    private readonly tradeStore: Pick<TradeStore, 'getDailyPnl'>,
+    private readonly isTradingEnabled: () => boolean = () => config.tradingEnabled
+  ) {}
 
   getSymbolSpec(symbol: string): SymbolSpec {
     return this.config.symbolSpecs[symbol] ?? { qtyStep: 0.001, priceTick: 0.1 };
   }
 
   prepareTrade(signal: TradingViewSignal, balance: BalanceSnapshot, openPositions: PositionSnapshot[]): PreparedTrade {
-    if (!this.config.tradingEnabled) {
+    if (!this.isTradingEnabled()) {
       throw new Error('Trading is disabled');
     }
     if (signal.action !== 'entry' || !signal.side || signal.entry === undefined) {

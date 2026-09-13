@@ -93,16 +93,21 @@ export class TradeManager {
   }
 
   private async closeTrade(trade: TradeRecord, openOrderIds: string[]): Promise<void> {
+    if (trade.dailyPnlBookedAt) {
+      return;
+    }
     for (const orderId of openOrderIds) {
       await this.bydfiClient.cancelOrder(trade.symbol, orderId);
     }
     const realizedPnl = trade.lastKnownRealizedPnl ?? trade.realizedPnl ?? 0;
+    const bookedAt = new Date().toISOString();
     this.tradeStore.updateTrade(trade.signalId, (current) => ({
       ...current,
       status: 'closed',
-      closedAt: new Date().toISOString(),
+      closedAt: bookedAt,
       realizedPnl,
-      remainingQty: 0
+      remainingQty: 0,
+      dailyPnlBookedAt: bookedAt
     }));
     this.tradeStore.addDailyPnl(realizedPnl);
     this.logStore.add('info', 'Trade fully closed', { signalId: trade.signalId, symbol: trade.symbol, realizedPnl });

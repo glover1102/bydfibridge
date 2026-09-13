@@ -46,6 +46,7 @@ export class MockBydfiClient implements BydfiClientLike {
   balance: BalanceSnapshot = { equity: 10_000, availableBalance: 2_000 };
   orderLookup = new Map<string, PlacedOrder>();
   sequence = 0;
+  nextEntryFilledQty?: number;
 
   async setLeverage(symbol: string, leverage: number): Promise<void> {
     this.leverageCalls.push({ symbol, leverage });
@@ -65,10 +66,13 @@ export class MockBydfiClient implements BydfiClientLike {
       price: input.price,
       triggerPrice: input.triggerPrice,
       qty: input.qty,
-      filledQty: input.qty,
+      filledQty: !input.reduceOnly && this.nextEntryFilledQty !== undefined ? this.nextEntryFilledQty : input.qty,
       avgFillPrice: input.price ?? 100,
       reduceOnly: input.reduceOnly
     };
+    if (!input.reduceOnly) {
+      this.nextEntryFilledQty = undefined;
+    }
     this.orderLookup.set(order.id, order);
     if (input.orderType !== 'MARKET') {
       this.openOrders.push({

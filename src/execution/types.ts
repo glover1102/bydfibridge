@@ -94,6 +94,7 @@ export interface TradeRecord {
   remainingQty: number;
   realizedPnl?: number;
   lastKnownRealizedPnl?: number;
+  dailyPnlBookedAt?: string;
 }
 
 export interface PreparedTrade {

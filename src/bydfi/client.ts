@@ -1,4 +1,3 @@
-import { createHmac } from 'node:crypto';
 import type { AppConfig } from '../config/env.js';
 import type { OpenOrder, PlacedOrder, PositionSnapshot, BalanceSnapshot, TradeSide } from '../execution/types.js';
 
@@ -38,6 +37,19 @@ export interface BydfiClientLike {
 
 const toPositionSide = (side: TradeSide): 'LONG' | 'SHORT' => side === 'long' ? 'LONG' : 'SHORT';
 const toTradeSide = (side: unknown): TradeSide => String(side).toUpperCase() === 'SHORT' ? 'short' : 'long';
+const encoder = new TextEncoder();
+
+const signHmacSha256 = async (secret: string, payload: string): Promise<string> => {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(payload));
+  return Array.from(new Uint8Array(signature)).map((byte) => byte.toString(16).padStart(2, '0')).join('');
+};
 
 export class BydfiClient implements BydfiClientLike {
   constructor(private readonly config: Pick<AppConfig, 'bydfiApiKey' | 'bydfiApiSecret' | 'bydfiBaseUrl'>) {}
@@ -182,12 +194,7 @@ export class BydfiClient implements BydfiClientLike {
     const body = JSON.stringify(params);
     // BYDFi V2 docs specify X-API-KEY, X-API-TIMESTAMP, and X-API-SIGNATURE headers,
     // with the signature computed over accessKey + timestamp + queryString + body.
-    const signature = createHmac('sha256', this.config.bydfiApiSecret)
-      .update(this.config.bydfiApiKey)
-      .update(timestamp)
-      .update(query)
-      .update(body)
-      .digest('hex');
+    const signature = await signHmacSha256(this.config.bydfiApiSecret, `${this.config.bydfiApiKey}${timestamp}${query}${body}`);
 
     const response = await fetch(`${this.config.bydfiBaseUrl}${path}`, {
       method: 'POST',

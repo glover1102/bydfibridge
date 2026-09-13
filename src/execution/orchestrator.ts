@@ -79,6 +79,15 @@ export class TradeOrchestrator {
     const entryFillPrice = filledOrder.avgFillPrice && filledOrder.avgFillPrice > 0 ? filledOrder.avgFillPrice : prepared.entry;
     const filledQty = filledOrder.filledQty && filledOrder.filledQty > 0 ? filledOrder.filledQty : prepared.qty;
 
+    if (prepared.orderType === 'limit' && (!filledOrder.filledQty || filledOrder.filledQty <= 0)) {
+      await this.bydfiClient.cancelOrder(prepared.symbol, entryOrder.id);
+      throw new Error('Limit entry did not fill immediately; order cancelled to avoid unmanaged exposure');
+    }
+
+    if (prepared.orderType === 'limit' && filledQty < prepared.qty) {
+      await this.bydfiClient.cancelOrder(prepared.symbol, entryOrder.id);
+    }
+
     const stopLossOrder = await this.bydfiClient.placeOrder({
       symbol: prepared.symbol,
       side: prepared.side === 'long' ? 'sell' : 'buy',

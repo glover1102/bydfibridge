@@ -103,4 +103,32 @@ describe('TradeOrchestrator', () => {
     expect(client.cancelledOrders).toContainEqual({ symbol: 'BTC-USDT', orderId: 'sl-1' });
     expect(client.ordersPlaced.at(-1)).toMatchObject({ orderType: 'STOP_MARKET', triggerPrice: 100, qty: 0.03 });
   });
+
+  it('cancels unfilled limit entries instead of placing unmanaged exits', async () => {
+    const config = createTestConfig();
+    const client = new MockBydfiClient();
+    client.nextEntryFilledQty = 0;
+    const tradeStore = new TradeStore('/tmp/bydfibridge-tests/orchestrator-limit.json');
+    const orchestrator = new TradeOrchestrator(config, client, new RiskEngine(config, tradeStore), tradeStore, new LogStore(50), notifier);
+
+    await expect(orchestrator.process({
+      token: 'secret',
+      strategy: 'test',
+      signal_id: 'sig-4',
+      action: 'entry',
+      side: 'long',
+      symbol: 'BTCUSDT',
+      leverage: 10,
+      qty: 0.05,
+      order_type: 'limit',
+      entry: 100,
+      stop_loss: 90,
+      takeProfits: [],
+      move_sl_to_be_after: 'none',
+      reverse_on_opposite: false
+    })).rejects.toThrow(/did not fill immediately/);
+
+    expect(client.cancelledOrders).toContainEqual({ symbol: 'BTC-USDT', orderId: 'order-1' });
+    expect(client.ordersPlaced.filter((order) => order.orderType === 'STOP_MARKET')).toHaveLength(0);
+  });
 });

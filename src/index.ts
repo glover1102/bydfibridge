@@ -15,22 +15,24 @@ const logStore = new LogStore(config.logStoreLimit);
 const dedupeStore = new PersistentDedupeStore(config.dedupeStoreFile, config.dedupeTtlMs);
 const notifier = new DiscordNotifier(config.discordWebhookUrl);
 const bydfiClient = new BydfiClient(config);
-const riskEngine = new RiskEngine(config, tradeStore);
-const orchestrator = new TradeOrchestrator(config, bydfiClient, riskEngine, tradeStore, logStore, notifier);
 const queue = createExecutionQueue();
 
 const tradingState = { enabled: config.tradingEnabled };
+const isTradingEnabled = (): boolean => tradingState.enabled;
+const setTradingEnabled = (enabled: boolean): void => {
+  tradingState.enabled = enabled;
+  config.tradingEnabled = enabled;
+};
+const riskEngine = new RiskEngine(config, tradeStore, isTradingEnabled);
+const orchestrator = new TradeOrchestrator(config, bydfiClient, riskEngine, tradeStore, logStore, notifier);
 const app = createApp({
   config,
   dedupeStore,
   orchestrator,
   queue,
   logStore,
-  getTradingEnabled: () => tradingState.enabled,
-  setTradingEnabled: (enabled) => {
-    tradingState.enabled = enabled;
-    config.tradingEnabled = enabled;
-  },
+  getTradingEnabled: isTradingEnabled,
+  setTradingEnabled,
   getPositions: () => bydfiClient.getPositions(),
   getOrders: () => bydfiClient.getOpenOrders()
 });

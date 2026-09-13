@@ -7,6 +7,8 @@ interface TradeStoreState {
   dailyPnlByDate: Record<string, number>;
 }
 
+const getUtcDayKey = (date = new Date()): string => date.toISOString().slice(0, 10);
+
 export class TradeStore {
   private readonly state: TradeStoreState;
 
@@ -50,13 +52,13 @@ export class TradeStore {
     return updated;
   }
 
-  addDailyPnl(amount: number, date = new Date().toISOString().slice(0, 10)): number {
+  addDailyPnl(amount: number, date = getUtcDayKey()): number {
     this.state.dailyPnlByDate[date] = (this.state.dailyPnlByDate[date] ?? 0) + amount;
     this.persist();
     return this.state.dailyPnlByDate[date];
   }
 
-  getDailyPnl(date = new Date().toISOString().slice(0, 10)): number {
+  getDailyPnl(date = getUtcDayKey()): number {
     return this.state.dailyPnlByDate[date] ?? 0;
   }
 

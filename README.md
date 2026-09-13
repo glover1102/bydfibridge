@@ -53,7 +53,7 @@ tests/
 
 ## Environment variables
 
-Copy `.env.example` to `.env` and set the values.
+Copy `.env.example` to `.env` and set the values. For local runs, export them into your shell or process manager before starting the app because the service reads environment variables from the process environment rather than auto-loading `.env`.
 
 | Variable | Required | Notes |
 | --- | --- | --- |
@@ -165,6 +165,9 @@ POST `application/json` to `/webhook/tradingview`.
 ## Local development
 
 ```bash
+set -a
+source .env
+set +a
 npm install
 npm run dev
 ```
