@@ -102,7 +102,7 @@ export const createApp = (deps: AppDependencies): FastifyInstance => {
     return reply.code(200).send({ accepted: true, signal_id: signal.signal_id });
   });
 
-  void app.register(async (adminApp) => {
+  app.register(async (adminApp) => {
     await adminApp.register(rateLimit, { global: false });
 
     adminApp.get('/positions', { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (request, reply) => {

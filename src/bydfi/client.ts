@@ -211,11 +211,17 @@ export class BydfiClient implements BydfiClientLike {
       throw new Error(`BYDFi request failed with status ${response.status}`);
     }
 
-    const payload = await response.json() as ApiEnvelope<T>;
+    const payload = await response.json() as ApiEnvelope<T> | T;
+    if (!payload || typeof payload !== 'object') {
+      return payload as T;
+    }
+    if (!('code' in payload) && !('data' in payload)) {
+      return payload as T;
+    }
     if ((payload.code !== undefined && String(payload.code) !== '0' && String(payload.code).toLowerCase() !== 'success')) {
       throw new Error(payload.message ?? payload.msg ?? 'Unknown BYDFi API error');
     }
-    return payload.data as T;
+    return (payload.data ?? payload) as T;
   }
 
   private serialize(params: Record<string, unknown>): string {

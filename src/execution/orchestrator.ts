@@ -7,6 +7,11 @@ import type { LogStore } from '../store/log-store.js';
 import type { Notifier } from '../notify/discord.js';
 import { normalizeTradingViewSymbol } from '../webhook/symbols.js';
 
+const roundToStep = (value: number, step: number): number => {
+  const precision = Math.max(0, `${step}`.split('.')[1]?.length ?? 0);
+  return Number((Math.floor(value / step) * step).toFixed(precision));
+};
+
 export class TradeOrchestrator {
   constructor(
     private readonly config: AppConfig,
@@ -92,6 +97,9 @@ export class TradeOrchestrator {
       await this.bydfiClient.cancelOrder(prepared.symbol, entryOrder.id);
     }
 
+    const qtyStep = this.riskEngine.getSymbolSpec(prepared.symbol).qtyStep;
+    const adjustedTakeProfits = this.scaleTakeProfits(prepared.takeProfits, filledQty, prepared.qty, qtyStep);
+
     const stopLossOrder = await this.bydfiClient.placeOrder({
       symbol: prepared.symbol,
       side: prepared.side === 'long' ? 'sell' : 'buy',
@@ -102,8 +110,8 @@ export class TradeOrchestrator {
       positionSide: toPositionSide(prepared.side)
     });
 
-    const takeProfitOrders = prepared.takeProfits.length > 0
-      ? await this.bydfiClient.batchPlaceOrders(prepared.takeProfits.map((takeProfit) => ({
+    const takeProfitOrders = adjustedTakeProfits.length > 0
+      ? await this.bydfiClient.batchPlaceOrders(adjustedTakeProfits.map((takeProfit) => ({
           symbol: prepared.symbol,
           side: prepared.side === 'long' ? 'sell' : 'buy',
           orderType: 'TAKE_PROFIT_MARKET',
@@ -135,7 +143,7 @@ export class TradeOrchestrator {
       remainingQty: filledQty
     };
 
-    prepared.takeProfits.forEach((takeProfit, index) => {
+    adjustedTakeProfits.forEach((takeProfit, index) => {
       const order = takeProfitOrders[index];
       if (!order) {
         return;
@@ -148,6 +156,21 @@ export class TradeOrchestrator {
     this.tradeStore.upsertTrade(tradeRecord);
     this.logStore.add('info', 'Entry filled and protective orders placed', { signalId: signal.signal_id, symbol: prepared.symbol, qty: filledQty });
     await this.notifier.notify('Entry filled', { signalId: signal.signal_id, symbol: prepared.symbol, qty: filledQty, entryFillPrice, stopLoss: prepared.stopLoss, takeProfits: prepared.takeProfits });
+  }
+
+  private scaleTakeProfits<T extends { qty: number }>(takeProfits: T[], filledQty: number, requestedQty: number, qtyStep: number): T[] {
+    if (takeProfits.length === 0 || filledQty >= requestedQty) {
+      return takeProfits;
+    }
+
+    const ratio = filledQty / requestedQty;
+    let allocated = 0;
+    return takeProfits.map((takeProfit, index) => {
+      const isLast = index === takeProfits.length - 1;
+      const qty = isLast ? roundToStep(filledQty - allocated, qtyStep) : roundToStep(takeProfit.qty * ratio, qtyStep);
+      allocated += qty;
+      return { ...takeProfit, qty };
+    }).filter((takeProfit) => takeProfit.qty > 0);
   }
 
   private async exitSymbol(symbol: string): Promise<void> {

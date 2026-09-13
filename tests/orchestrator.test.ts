@@ -104,6 +104,40 @@ describe('TradeOrchestrator', () => {
     expect(client.ordersPlaced.at(-1)).toMatchObject({ orderType: 'STOP_MARKET', triggerPrice: 100, qty: 0.03 });
   });
 
+  it('does not move stop twice once breakeven is marked complete', async () => {
+    const config = createTestConfig();
+    const client = new MockBydfiClient();
+    const tradeStore = new TradeStore('/tmp/bydfibridge-tests/orchestrator-be-complete.json');
+    tradeStore.upsertTrade({
+      signalId: 'sig-3b',
+      strategy: 'test',
+      symbol: 'BTC-USDT',
+      side: 'long',
+      leverage: 10,
+      entryOrderId: 'entry-1',
+      entryFillPrice: 100,
+      entryFilledQty: 0.05,
+      stopLossOrderId: 'sl-2',
+      stopLossPrice: 100,
+      takeProfitOrderIds: { tp1: 'tp-1' },
+      takeProfitPrices: { tp1: 110 },
+      takeProfitQtys: { tp1: 0.02 },
+      moveSlToBeAfter: 'tp1',
+      breakevenMoved: true,
+      status: 'open',
+      openedAt: new Date().toISOString(),
+      remainingQty: 0.03
+    });
+    client.positions = [{ symbol: 'BTC-USDT', side: 'long', qty: 0.03, entryPrice: 100, realizedPnl: 20 }];
+    client.openOrders = [{ id: 'sl-2', symbol: 'BTC-USDT', side: 'sell', type: 'STOP_MARKET', qty: 0.03, reduceOnly: true }];
+
+    const manager = new TradeManager(config, client, tradeStore, new LogStore(50), notifier, () => 0.1);
+    await manager.tick();
+
+    expect(client.cancelledOrders).toHaveLength(0);
+    expect(client.ordersPlaced.filter((order) => order.orderType === 'STOP_MARKET')).toHaveLength(0);
+  });
+
   it('cancels unfilled limit entries instead of placing unmanaged exits', async () => {
     const config = createTestConfig();
     const client = new MockBydfiClient();
@@ -130,5 +164,36 @@ describe('TradeOrchestrator', () => {
 
     expect(client.cancelledOrders).toContainEqual({ symbol: 'BTC-USDT', orderId: 'order-1' });
     expect(client.ordersPlaced.filter((order) => order.orderType === 'STOP_MARKET')).toHaveLength(0);
+  });
+
+  it('scales take-profit quantities to the actual partially filled limit size', async () => {
+    const config = createTestConfig();
+    const client = new MockBydfiClient();
+    client.nextEntryFilledQty = 0.025;
+    const tradeStore = new TradeStore('/tmp/bydfibridge-tests/orchestrator-limit-partial.json');
+    const orchestrator = new TradeOrchestrator(config, client, new RiskEngine(config, tradeStore), tradeStore, new LogStore(50), notifier);
+
+    await orchestrator.process({
+      token: 'secret',
+      strategy: 'test',
+      signal_id: 'sig-5',
+      action: 'entry',
+      side: 'long',
+      symbol: 'BTCUSDT',
+      leverage: 10,
+      qty: 0.05,
+      order_type: 'limit',
+      entry: 100,
+      stop_loss: 90,
+      takeProfits: [
+        { name: 'tp1', price: 110, qty: 0.02 },
+        { name: 'tp2', price: 120, qty: 0.03 }
+      ],
+      move_sl_to_be_after: 'tp1',
+      reverse_on_opposite: false
+    });
+
+    expect(client.cancelledOrders).toContainEqual({ symbol: 'BTC-USDT', orderId: 'order-1' });
+    expect(client.batchOrdersPlaced[0]?.map((order) => order.qty)).toEqual([0.01, 0.015]);
   });
 });
