@@ -1,0 +1,8 @@
+node_modules
+coverage
+dist
+.env
+.vscode
+.DS_Store
+data/*.json
+!data/.gitkeep
