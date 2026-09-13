@@ -36,10 +36,10 @@ const payloadSchema = z.object({
   if (value.action !== 'close_all' && !value.side) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'side is required', path: ['side'] });
   }
-  if (value.action === 'entry' && !value.entry) {
+  if (value.action === 'entry' && value.entry === undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'entry is required', path: ['entry'] });
   }
-  if (value.action === 'entry' && !value.qty && !value.risk_percent) {
+  if (value.action === 'entry' && value.qty === undefined && value.risk_percent === undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'qty or risk_percent is required', path: ['qty'] });
   }
 });

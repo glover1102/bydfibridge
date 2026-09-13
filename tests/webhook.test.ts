@@ -72,6 +72,29 @@ describe('webhook route', () => {
     expect(response.json()).toEqual({ accepted: true, signal_id: '2' });
   });
 
+  it('rejects zero values through numeric validation instead of missing-field checks', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhook/tradingview',
+      payload: {
+        token: 'secret',
+        strategy: 's',
+        signal_id: '2-zero',
+        action: 'entry',
+        side: 'long',
+        symbol: 'BTCUSDT',
+        leverage: '10',
+        qty: '0',
+        order_type: 'market',
+        entry: '0',
+        stop_loss: '0'
+      }
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error).toBe('Invalid payload');
+  });
+
   it('rejects missing stop loss, wrong-side tp, and tp qty overflow', async () => {
     const badPayloads = [
       {
@@ -106,5 +129,24 @@ describe('webhook route', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ accepted: false, signal_id: 'dup', reason: 'duplicate' });
+  });
+
+  it('rate limits admin endpoints', async () => {
+    for (let index = 0; index < 30; index += 1) {
+      const response = await app.inject({
+        method: 'GET',
+        url: '/logs',
+        headers: { 'admin-token': 'admin' }
+      });
+      expect(response.statusCode).toBe(200);
+    }
+
+    const limited = await app.inject({
+      method: 'GET',
+      url: '/logs',
+      headers: { 'admin-token': 'admin' }
+    });
+
+    expect(limited.statusCode).toBe(429);
   });
 });

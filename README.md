@@ -201,4 +201,4 @@ Protected endpoints require the `admin-token` header.
 
 ## Notes on BYDFi signing
 
-`src/bydfi/client.ts` centralizes request signing. Header names and the exact signature payload format should be verified against the current live BYDFi V2 docs before trading with real funds, because exchanges sometimes revise auth requirements.
+`src/bydfi/client.ts` centralizes BYDFi V2 signing for the `/api/v2/fapi/...` endpoints using `X-API-KEY`, `X-API-TIMESTAMP`, and `X-SIGNATURE`, with the signature payload assembled as `accessKey + timestamp + queryString + body` per the current BYDFi V2 documentation. Before enabling live trading, still validate the exact endpoint and auth contract against the latest BYDFi docs in case the exchange revises its API.

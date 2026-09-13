@@ -62,7 +62,7 @@ export class RiskEngine {
     if (!this.config.tradingEnabled) {
       throw new Error('Trading is disabled');
     }
-    if (signal.action !== 'entry' || !signal.side || !signal.entry) {
+    if (signal.action !== 'entry' || !signal.side || signal.entry === undefined) {
       throw new Error('Only entry signals can be prepared');
     }
 
@@ -70,13 +70,13 @@ export class RiskEngine {
     const leverage = this.resolveLeverage(symbol, signal.leverage ?? 1);
     const stopLoss = signal.stop_loss;
 
-    if (this.config.requireStopLoss && !stopLoss) {
+    if (this.config.requireStopLoss && stopLoss === undefined) {
       throw new Error('stop_loss is required');
     }
     if (this.config.requireTakeProfit && signal.takeProfits.length === 0) {
       throw new Error('At least one take profit is required');
     }
-    if (!stopLoss) {
+    if (stopLoss === undefined) {
       throw new Error('stop_loss is required');
     }
 
@@ -140,7 +140,7 @@ export class RiskEngine {
       }
       return riskAmount / distance;
     }
-    if (!signal.qty) {
+    if (signal.qty === undefined) {
       throw new Error('qty is required when risk_percent is not provided');
     }
     return signal.qty;

@@ -24,6 +24,11 @@ interface AppDependencies {
   getOrders: () => Promise<unknown>;
 }
 
+interface RateLimitState {
+  count: number;
+  resetAt: number;
+}
+
 const adminHeaderSchema = z.object({
   'admin-token': z.string().min(1).optional(),
   'x-admin-token': z.string().min(1).optional()
@@ -39,6 +44,23 @@ const withAdminAuth = async (request: FastifyRequest, reply: FastifyReply, confi
   return true;
 };
 
+const createRateLimiter = (windowMs: number, maxRequests: number) => {
+  const states = new Map<string, RateLimitState>();
+  return (key: string): boolean => {
+    const now = Date.now();
+    const current = states.get(key);
+    if (!current || current.resetAt <= now) {
+      states.set(key, { count: 1, resetAt: now + windowMs });
+      return true;
+    }
+    if (current.count >= maxRequests) {
+      return false;
+    }
+    current.count += 1;
+    return true;
+  };
+};
+
 export const createExecutionQueue = (): ExecutionQueue => {
   let current = Promise.resolve();
   return {
@@ -51,6 +73,7 @@ export const createExecutionQueue = (): ExecutionQueue => {
 export const createApp = (deps: AppDependencies): FastifyInstance => {
   const app = Fastify({ logger: true });
   const startedAt = Date.now();
+  const allowAdminRequest = createRateLimiter(60_000, 30);
 
   app.get('/health', async () => ({ ok: true, tradingEnabled: deps.getTradingEnabled(), uptime: Math.floor((Date.now() - startedAt) / 1000) }));
 
@@ -102,6 +125,9 @@ export const createApp = (deps: AppDependencies): FastifyInstance => {
   });
 
   app.get('/positions', async (request, reply) => {
+    if (!allowAdminRequest(`${request.ip}:positions`)) {
+      return reply.code(429).send({ error: 'Too Many Requests' });
+    }
     if (!await withAdminAuth(request, reply, deps.config)) {
       return;
     }
@@ -109,6 +135,9 @@ export const createApp = (deps: AppDependencies): FastifyInstance => {
   });
 
   app.get('/orders', async (request, reply) => {
+    if (!allowAdminRequest(`${request.ip}:orders`)) {
+      return reply.code(429).send({ error: 'Too Many Requests' });
+    }
     if (!await withAdminAuth(request, reply, deps.config)) {
       return;
     }
@@ -116,6 +145,9 @@ export const createApp = (deps: AppDependencies): FastifyInstance => {
   });
 
   app.get('/logs', async (request, reply) => {
+    if (!allowAdminRequest(`${request.ip}:logs`)) {
+      return reply.code(429).send({ error: 'Too Many Requests' });
+    }
     if (!await withAdminAuth(request, reply, deps.config)) {
       return;
     }
@@ -123,6 +155,9 @@ export const createApp = (deps: AppDependencies): FastifyInstance => {
   });
 
   app.post('/admin/kill', async (request, reply) => {
+    if (!allowAdminRequest(`${request.ip}:admin-kill`)) {
+      return reply.code(429).send({ error: 'Too Many Requests' });
+    }
     if (!await withAdminAuth(request, reply, deps.config)) {
       return;
     }
@@ -132,6 +167,9 @@ export const createApp = (deps: AppDependencies): FastifyInstance => {
   });
 
   app.post('/admin/enable', async (request, reply) => {
+    if (!allowAdminRequest(`${request.ip}:admin-enable`)) {
+      return reply.code(429).send({ error: 'Too Many Requests' });
+    }
     if (!await withAdminAuth(request, reply, deps.config)) {
       return;
     }
