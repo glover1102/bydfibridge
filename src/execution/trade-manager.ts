@@ -47,21 +47,21 @@ export class TradeManager {
     const position = positions.find((candidate) => candidate.symbol === trade.symbol && candidate.side === trade.side);
     const remainingQty = position?.qty ?? 0;
 
-    this.tradeStore.updateTrade(trade.signalId, (current) => ({
+    const updatedTrade = this.tradeStore.updateTrade(trade.signalId, (current) => ({
       ...current,
       remainingQty,
       lastKnownRealizedPnl: position?.realizedPnl ?? current.lastKnownRealizedPnl
-    }));
+    })) ?? trade;
 
-    if (shouldMoveStopToBreakeven(trade) && !trade.breakevenMoved) {
-      const triggerOrderId = trade.takeProfitOrderIds[trade.moveSlToBeAfter];
+    if (shouldMoveStopToBreakeven(updatedTrade) && !updatedTrade.breakevenMoved) {
+      const triggerOrderId = updatedTrade.takeProfitOrderIds[updatedTrade.moveSlToBeAfter];
       if (triggerOrderId && !openOrders.some((order) => order.id === triggerOrderId) && remainingQty > 0) {
-        await this.moveStopToBreakeven(trade, remainingQty);
+        await this.moveStopToBreakeven(updatedTrade, remainingQty);
       }
     }
 
     if (remainingQty <= 0) {
-      await this.closeTrade(trade, openOrders.map((order) => order.id));
+      await this.closeTrade(updatedTrade, openOrders.map((order) => order.id));
     }
   }
 

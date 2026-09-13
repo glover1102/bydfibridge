@@ -5,7 +5,7 @@ import { normalizeTradingViewSymbol } from './symbols.js';
 export const validateSignalInput = (signal: TradingViewSignal, config: Pick<AppConfig, 'requireStopLoss' | 'requireTakeProfit' | 'symbolMap'>): void => {
   normalizeTradingViewSymbol(signal.symbol, config.symbolMap);
 
-  if (signal.action !== 'entry' || !signal.side || !signal.entry) {
+  if (signal.action !== 'entry' || !signal.side || signal.entry === undefined) {
     return;
   }
 

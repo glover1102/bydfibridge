@@ -74,6 +74,9 @@ export class MockBydfiClient implements BydfiClientLike {
       this.nextEntryFilledQty = undefined;
     }
     this.orderLookup.set(order.id, order);
+    if (input.closePosition) {
+      this.positions = this.positions.filter((position) => !(position.symbol === input.symbol && position.side === (input.positionSide === 'LONG' ? 'long' : 'short')));
+    }
     if (input.orderType !== 'MARKET') {
       this.openOrders.push({
         id: order.id,

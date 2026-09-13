@@ -29,7 +29,7 @@ export class TradeOrchestrator {
       return;
     }
 
-    const positions = await this.bydfiClient.getPositions();
+    let positions = await this.bydfiClient.getPositions();
     const existing = positions.find((position) => position.symbol === mappedSymbol);
 
     if (existing) {
@@ -54,6 +54,10 @@ export class TradeOrchestrator {
             closePosition: true,
             positionSide: toPositionSide(existing.side)
           });
+        }
+        positions = await this.bydfiClient.getPositions();
+        if (positions.some((position) => position.symbol === mappedSymbol && position.side === existing.side)) {
+          throw new Error('Opposite position still open after close attempt');
         }
       } else if (!this.config.allowPyramiding) {
         this.logStore.add('info', 'Skipping same-side signal because pyramiding is disabled', { signalId: signal.signal_id, symbol: mappedSymbol });
