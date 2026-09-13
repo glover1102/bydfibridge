@@ -26,6 +26,7 @@ describe('webhook route', () => {
     queueTasks.length = 0;
     orchestrator.process.mockClear();
     dedupeStore.reserve.mockReturnValue(true);
+    vi.restoreAllMocks();
   });
 
   afterEach(async () => {
@@ -129,6 +130,30 @@ describe('webhook route', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ accepted: false, signal_id: 'dup', reason: 'duplicate' });
+  });
+
+  it('logs async execution failures without changing the accepted webhook response', async () => {
+    orchestrator.process.mockRejectedValueOnce(new Error('boom'));
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhook/tradingview',
+      payload: {
+        token: 'secret',
+        strategy: 's',
+        signal_id: 'async-fail',
+        action: 'close_all',
+        symbol: 'BTCUSDT',
+        order_type: 'market'
+      }
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ accepted: true, signal_id: 'async-fail' });
+
+    const task = queueTasks.shift();
+    await task?.();
+
+    expect(logStore.list().some((entry) => entry.message === 'Signal execution failed' && entry.context?.signalId === 'async-fail')).toBe(true);
   });
 
   it('rate limits admin endpoints', async () => {
