@@ -11,6 +11,7 @@ export const createTestConfig = (): AppConfig => ({
   bydfiApiSecret: 'secret2',
   bydfiBaseUrl: 'https://api.example.com',
   bydfiSignatureHeader: 'X-SIGNATURE',
+  bydfiWallet: 'W001',
   tradingEnabled: true,
   allowedSourceIps: [],
   symbolMap: { BTCUSD: 'BTC-USDT' },
@@ -33,6 +34,8 @@ export const createTestConfig = (): AppConfig => ({
   dedupeStoreFile: '/tmp/bydfibridge-tests/dedupe-store.json',
   tradeStoreFile: '/tmp/bydfibridge-tests/trade-store.json',
   logStoreLimit: 50,
+  webhookRateLimitMax: 60,
+  webhookRateLimitWindow: '1 minute',
   discordWebhookUrl: undefined
 });
 

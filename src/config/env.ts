@@ -12,6 +12,7 @@ const envSchema = z.object({
   BYDFI_API_SECRET: z.string().min(1),
   BYDFI_BASE_URL: z.string().url().default('https://api.bydfi.com'),
   BYDFI_SIGNATURE_HEADER: z.string().min(1).default('X-SIGNATURE'),
+  BYDFI_WALLET: z.string().min(1).default('W001'),
   TRADING_ENABLED: z.string().optional().default('false'),
   ALLOWED_SOURCE_IPS: z.string().optional().default(''),
   SYMBOL_MAP: z.string().optional().default('{}'),
@@ -32,7 +33,9 @@ const envSchema = z.object({
   DEDUPE_TTL_MS: z.coerce.number().int().positive().default(86_400_000),
   DATA_DIR: z.string().min(1).default('./data'),
   DISCORD_WEBHOOK_URL: z.union([z.literal(''), z.string().url()]).optional().default(''),
-  LOG_STORE_LIMIT: z.coerce.number().int().positive().default(200)
+  LOG_STORE_LIMIT: z.coerce.number().int().positive().default(200),
+  WEBHOOK_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(60),
+  WEBHOOK_RATE_LIMIT_WINDOW: z.string().min(1).default('1 minute')
 });
 
 const parseBoolean = (value: string): boolean => ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
@@ -58,6 +61,7 @@ export interface AppConfig {
   bydfiApiSecret: string;
   bydfiBaseUrl: string;
   bydfiSignatureHeader: string;
+  bydfiWallet: string;
   tradingEnabled: boolean;
   allowedSourceIps: string[];
   symbolMap: Record<string, string>;
@@ -80,6 +84,8 @@ export interface AppConfig {
   dedupeStoreFile: string;
   tradeStoreFile: string;
   logStoreLimit: number;
+  webhookRateLimitMax: number;
+  webhookRateLimitWindow: string;
   discordWebhookUrl?: string;
 }
 
@@ -97,6 +103,7 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
     bydfiApiSecret: parsed.BYDFI_API_SECRET,
     bydfiBaseUrl: parsed.BYDFI_BASE_URL,
     bydfiSignatureHeader: parsed.BYDFI_SIGNATURE_HEADER,
+    bydfiWallet: parsed.BYDFI_WALLET,
     tradingEnabled: parseBoolean(parsed.TRADING_ENABLED),
     allowedSourceIps: parsed.ALLOWED_SOURCE_IPS.split(',').map((ip) => ip.trim()).filter(Boolean),
     symbolMap: parseRecord<string>(parsed.SYMBOL_MAP, 'SYMBOL_MAP'),
@@ -119,6 +126,8 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
     dedupeStoreFile: resolve(dataDir, 'dedupe-store.json'),
     tradeStoreFile: resolve(dataDir, 'trade-store.json'),
     logStoreLimit: parsed.LOG_STORE_LIMIT,
+    webhookRateLimitMax: parsed.WEBHOOK_RATE_LIMIT_MAX,
+    webhookRateLimitWindow: parsed.WEBHOOK_RATE_LIMIT_WINDOW,
     discordWebhookUrl: parsed.DISCORD_WEBHOOK_URL || undefined
   };
 
