@@ -52,7 +52,7 @@ const signHmacSha256 = async (secret: string, payload: string): Promise<string> 
 };
 
 export class BydfiClient implements BydfiClientLike {
-  constructor(private readonly config: Pick<AppConfig, 'bydfiApiKey' | 'bydfiApiSecret' | 'bydfiBaseUrl'>) {}
+  constructor(private readonly config: Pick<AppConfig, 'bydfiApiKey' | 'bydfiApiSecret' | 'bydfiBaseUrl' | 'bydfiSignatureHeader'>) {}
 
   async setLeverage(symbol: string, leverage: number): Promise<void> {
     await this.request('/api/v2/fapi/position/set_leverage', { symbol, leverage });
@@ -192,8 +192,8 @@ export class BydfiClient implements BydfiClientLike {
     const timestamp = Date.now().toString();
     const query = this.serialize(params);
     const body = JSON.stringify(params);
-    // BYDFi V2 docs specify X-API-KEY, X-API-TIMESTAMP, and X-API-SIGNATURE headers,
-    // with the signature computed over accessKey + timestamp + queryString + body.
+    // The signature header name is configurable while the exact BYDFi header naming is
+    // verified against live API/docs. The signature payload remains accessKey + timestamp + queryString + body.
     const signature = await signHmacSha256(this.config.bydfiApiSecret, `${this.config.bydfiApiKey}${timestamp}${query}${body}`);
 
     const response = await fetch(`${this.config.bydfiBaseUrl}${path}`, {
@@ -202,13 +202,14 @@ export class BydfiClient implements BydfiClientLike {
         'content-type': 'application/json',
         'X-API-KEY': this.config.bydfiApiKey,
         'X-API-TIMESTAMP': timestamp,
-        'X-SIGNATURE': signature
+        [this.config.bydfiSignatureHeader]: signature
       },
       body
     });
 
     if (!response.ok) {
-      throw new Error(`BYDFi request failed with status ${response.status}`);
+      const responseBody = this.truncateResponseBody(await response.text());
+      throw new Error(`BYDFi request failed for ${path} with status ${response.status}: ${responseBody}`);
     }
 
     const payload = await response.json() as ApiEnvelope<T> | T;
@@ -230,6 +231,14 @@ export class BydfiClient implements BydfiClientLike {
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([key, value]) => `${key}=${typeof value === 'object' ? JSON.stringify(value) : String(value)}`)
       .join('&');
+  }
+
+  private truncateResponseBody(body: string): string {
+    const trimmed = body.trim();
+    if (!trimmed) {
+      return '<empty response body>';
+    }
+    return trimmed.length > 500 ? `${trimmed.slice(0, 500)}...` : trimmed;
   }
 }
 

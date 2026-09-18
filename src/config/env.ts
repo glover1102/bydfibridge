@@ -11,10 +11,12 @@ const envSchema = z.object({
   BYDFI_API_KEY: z.string().min(1),
   BYDFI_API_SECRET: z.string().min(1),
   BYDFI_BASE_URL: z.string().url().default('https://api.bydfi.com'),
+  BYDFI_SIGNATURE_HEADER: z.string().min(1).default('X-SIGNATURE'),
   TRADING_ENABLED: z.string().optional().default('false'),
   ALLOWED_SOURCE_IPS: z.string().optional().default(''),
   SYMBOL_MAP: z.string().optional().default('{}'),
   SYMBOL_SPECS: z.string().optional().default('{}'),
+  SYMBOL_SPECS_REFRESH_MS: z.coerce.number().int().nonnegative().default(3_600_000),
   SYMBOL_LEVERAGE_CAPS: z.string().optional().default('{}'),
   MAX_POSITION_SIZE: z.string().optional().default('{}'),
   MAX_LEVERAGE: z.coerce.number().positive().default(20),
@@ -55,10 +57,12 @@ export interface AppConfig {
   bydfiApiKey: string;
   bydfiApiSecret: string;
   bydfiBaseUrl: string;
+  bydfiSignatureHeader: string;
   tradingEnabled: boolean;
   allowedSourceIps: string[];
   symbolMap: Record<string, string>;
   symbolSpecs: Record<string, SymbolSpec>;
+  symbolSpecsRefreshMs: number;
   symbolLeverageCaps: Record<string, number>;
   maxPositionSize: Record<string, number>;
   maxLeverage: number;
@@ -92,10 +96,12 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
     bydfiApiKey: parsed.BYDFI_API_KEY,
     bydfiApiSecret: parsed.BYDFI_API_SECRET,
     bydfiBaseUrl: parsed.BYDFI_BASE_URL,
+    bydfiSignatureHeader: parsed.BYDFI_SIGNATURE_HEADER,
     tradingEnabled: parseBoolean(parsed.TRADING_ENABLED),
     allowedSourceIps: parsed.ALLOWED_SOURCE_IPS.split(',').map((ip) => ip.trim()).filter(Boolean),
     symbolMap: parseRecord<string>(parsed.SYMBOL_MAP, 'SYMBOL_MAP'),
     symbolSpecs: parseRecord<SymbolSpec>(parsed.SYMBOL_SPECS, 'SYMBOL_SPECS'),
+    symbolSpecsRefreshMs: parsed.SYMBOL_SPECS_REFRESH_MS,
     symbolLeverageCaps: parseRecord<number>(parsed.SYMBOL_LEVERAGE_CAPS, 'SYMBOL_LEVERAGE_CAPS'),
     maxPositionSize: parseRecord<number>(parsed.MAX_POSITION_SIZE, 'MAX_POSITION_SIZE'),
     maxLeverage: parsed.MAX_LEVERAGE,

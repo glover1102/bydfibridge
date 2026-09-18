@@ -61,10 +61,13 @@ Copy `.env.example` to `.env` and set the values. Then export that file into you
 | `ADMIN_TOKEN` | yes | Required for `/positions`, `/orders`, `/logs`, `/admin/*` |
 | `BYDFI_API_KEY` | yes | Read + Perpetual Trading only |
 | `BYDFI_API_SECRET` | yes | Never put this in TradingView |
+| `BYDFI_BASE_URL` | no | Defaults to `https://api.bydfi.com` |
+| `BYDFI_SIGNATURE_HEADER` | no | Signature header name override; defaults to `X-SIGNATURE` |
 | `TRADING_ENABLED` | no | Defaults to `false` |
 | `ALLOWED_SOURCE_IPS` | no | Comma-separated TradingView source IP allowlist |
 | `SYMBOL_MAP` | no | JSON override map |
-| `SYMBOL_SPECS` | no | JSON of qty step + price tick metadata |
+| `SYMBOL_SPECS` | no | JSON override for qty step + price tick metadata layered on top of exchange-provided specs |
+| `SYMBOL_SPECS_REFRESH_MS` | no | Refresh interval for exchange symbol specs; defaults to `3600000`, set `0` to disable |
 | `SYMBOL_LEVERAGE_CAPS` | no | JSON per-symbol leverage caps |
 | `MAX_POSITION_SIZE` | no | JSON per-symbol base-coin caps |
 | `MAX_OPEN_POSITIONS` | no | Total concurrent positions |
@@ -172,6 +175,19 @@ npm install
 npm run dev
 ```
 
+### Pre-flight check
+
+Before enabling live trading, run the read-only BYDFi smoke test:
+
+```bash
+set -a
+source .env
+set +a
+npm run smoke
+```
+
+`npm run smoke` calls `getExchangeInfo()`, `getBalance()`, `getPositions()`, and `getOpenOrders()` in sequence and never places, modifies, or cancels orders. `WEBHOOK_TOKEN` and `ADMIN_TOKEN` can be any non-empty dummy values for this pre-flight run.
+
 ## Scripts
 
 ```bash
@@ -179,6 +195,7 @@ npm run build
 npm run typecheck
 npm run lint
 npm test
+npm run smoke
 npm run start
 ```
 
@@ -204,4 +221,4 @@ Protected endpoints require the `admin-token` header.
 
 ## Notes on BYDFi signing
 
-`src/bydfi/client.ts` centralizes BYDFi V2 signing for the `/api/v2/fapi/...` endpoints using `X-API-KEY`, `X-API-TIMESTAMP`, and `X-SIGNATURE`, with the signature payload assembled as `accessKey + timestamp + queryString + body` per the current BYDFi V2 documentation. Before enabling live trading, still validate the exact endpoint and auth contract against the latest BYDFi docs in case the exchange revises its API.
+`src/bydfi/client.ts` centralizes BYDFi V2 signing for the `/api/v2/fapi/...` endpoints using `X-API-KEY`, `X-API-TIMESTAMP`, and a configurable signature header (`BYDFI_SIGNATURE_HEADER`, default `X-SIGNATURE`), with the signature payload assembled as `accessKey + timestamp + queryString + body`. Before enabling live trading, still validate the exact endpoint and auth contract against the latest BYDFi docs in case the exchange revises its API.

@@ -90,4 +90,11 @@ describe('RiskEngine', () => {
       { symbol: 'XRP-USDT', side: 'short', qty: 1, entryPrice: 10 }
     ])).toThrow(/Max open positions/);
   });
+
+  it('rejects symbols without a configured spec', () => {
+    const config = createTestConfig();
+    const engine = new RiskEngine(config, { getDailyPnl: () => 0 });
+
+    expect(() => engine.getSymbolSpec('ETH-USDT')).toThrow('No symbol spec configured for ETH-USDT');
+  });
 });

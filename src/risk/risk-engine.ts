@@ -59,7 +59,11 @@ export class RiskEngine {
   ) {}
 
   getSymbolSpec(symbol: string): SymbolSpec {
-    return this.config.symbolSpecs[symbol] ?? { qtyStep: 0.001, priceTick: 0.1 };
+    const spec = this.config.symbolSpecs[symbol];
+    if (!spec) {
+      throw new Error(`No symbol spec configured for ${symbol}`);
+    }
+    return spec;
   }
 
   prepareTrade(signal: TradingViewSignal, balance: BalanceSnapshot, openPositions: PositionSnapshot[]): PreparedTrade {

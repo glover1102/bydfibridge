@@ -1,5 +1,6 @@
 import { loadConfig } from './config/env.js';
 import { BydfiClient } from './bydfi/client.js';
+import { loadSymbolSpecsFromExchange, mergeSymbolSpecs } from './bydfi/symbol-specs.js';
 import { RiskEngine } from './risk/risk-engine.js';
 import { TradeStore } from './store/trade-store.js';
 import { PersistentDedupeStore } from './store/dedupe-store.js';
@@ -15,6 +16,7 @@ const logStore = new LogStore(config.logStoreLimit);
 const dedupeStore = new PersistentDedupeStore(config.dedupeStoreFile, config.dedupeTtlMs);
 const notifier = new DiscordNotifier(config.discordWebhookUrl);
 const bydfiClient = new BydfiClient(config);
+const envSymbolSpecs = { ...config.symbolSpecs };
 const queue = createExecutionQueue();
 
 const tradingState = { enabled: config.tradingEnabled };
@@ -45,9 +47,32 @@ const tradeManager = new TradeManager(
   notifier,
   (symbol) => riskEngine.getSymbolSpec(symbol).priceTick
 );
-tradeManager.start();
+
+const refreshSymbolSpecs = async (): Promise<void> => {
+  const exchangeSymbolSpecs = await loadSymbolSpecsFromExchange(bydfiClient);
+  config.symbolSpecs = mergeSymbolSpecs(exchangeSymbolSpecs, envSymbolSpecs);
+};
+
+const scheduleSymbolSpecRefresh = (): void => {
+  if (config.symbolSpecsRefreshMs <= 0) {
+    return;
+  }
+  const timer = setInterval(() => {
+    void refreshSymbolSpecs().catch((error) => {
+      app.log.warn({ err: error }, 'Failed to refresh symbol specs from BYDFi exchange info');
+    });
+  }, config.symbolSpecsRefreshMs);
+  timer.unref();
+};
 
 const start = async (): Promise<void> => {
+  try {
+    await refreshSymbolSpecs();
+  } catch (error) {
+    app.log.warn({ err: error }, 'Failed to load symbol specs from BYDFi exchange info; continuing with env specs only');
+  }
+  scheduleSymbolSpecRefresh();
+  tradeManager.start();
   await app.listen({ host: '0.0.0.0', port: config.port });
 };
 
