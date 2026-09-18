@@ -241,7 +241,42 @@ export class BydfiClient implements BydfiClientLike {
     if (!trimmed) {
       return '<empty response body>';
     }
-    return trimmed.length > 500 ? `${trimmed.slice(0, 500)}...` : trimmed;
+
+    const redacted = this.redactInlineSecrets(this.stringifyRedactedJson(trimmed));
+    return redacted.length > 500 ? `${redacted.slice(0, 500)}...` : redacted;
+  }
+
+  private stringifyRedactedJson(body: string): string {
+    try {
+      return JSON.stringify(this.redactSensitiveFields(JSON.parse(body)));
+    } catch {
+      return body;
+    }
+  }
+
+  private redactSensitiveFields(value: unknown): unknown {
+    if (Array.isArray(value)) {
+      return value.map((entry) => this.redactSensitiveFields(entry));
+    }
+    if (!value || typeof value !== 'object') {
+      return value;
+    }
+
+    return Object.fromEntries(Object.entries(value).map(([key, entryValue]) => [
+      key,
+      this.isSensitiveKey(key) ? '[REDACTED]' : this.redactSensitiveFields(entryValue)
+    ]));
+  }
+
+  private redactInlineSecrets(body: string): string {
+    return body.replaceAll(
+      /((?:api[-_]?key|secret|token|signature|passphrase|password)"?\s*[:=]\s*"?)([^",\s}]+)/gi,
+      '$1[REDACTED]'
+    );
+  }
+
+  private isSensitiveKey(key: string): boolean {
+    return /^(?:api[-_]?key|secret|token|signature|passphrase|password)$/i.test(key);
   }
 }
 

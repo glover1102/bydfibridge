@@ -72,7 +72,8 @@ const start = async (): Promise<void> => {
     app.log.warn({ err: error }, 'Failed to load symbol specs from BYDFi exchange info; continuing with env specs only');
   }
   if (Object.keys(config.symbolSpecs).length === 0) {
-    app.log.warn('No symbol specs available from BYDFi exchange info or SYMBOL_SPECS overrides; matching trades will be rejected');
+    setTradingEnabled(false);
+    app.log.warn('No symbol specs available from BYDFi exchange info or SYMBOL_SPECS overrides; trading has been disabled until specs are configured or refreshed');
   }
   scheduleSymbolSpecRefresh();
   tradeManager.start();
