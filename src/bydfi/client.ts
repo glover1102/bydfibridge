@@ -105,7 +105,7 @@ const normalizeOrder = (order: Record<string, unknown>, fallbackSymbol?: string,
   price: order.price ? Number(order.price) : undefined,
   triggerPrice: order.triggerPrice ? Number(order.triggerPrice) : order.stopPrice ? Number(order.stopPrice) : undefined,
   qty: Number(order.quantity ?? order.origQty ?? order.qty ?? 0),
-  filledQty: Number(order.executedQty ?? order.dealQuantity ?? order.qty ?? 0),
+  filledQty: Number(order.executedQty ?? order.dealQuantity ?? 0),
   avgFillPrice: Number(order.avgPrice ?? 0),
   reduceOnly: Boolean(order.reduceOnly)
 });
@@ -165,7 +165,7 @@ export class BydfiClient implements BydfiClientLike {
       price: input.price,
       triggerPrice: input.triggerPrice,
       qty: input.qty,
-      filledQty: Number(data.executedQty ?? data.dealQuantity ?? input.qty),
+      filledQty: Number(data.executedQty ?? data.dealQuantity ?? 0),
       avgFillPrice: Number(data.avgPrice ?? input.price ?? 0),
       reduceOnly: input.reduceOnly
     };
@@ -196,7 +196,7 @@ export class BydfiClient implements BydfiClientLike {
       price: input.price,
       triggerPrice: input.triggerPrice,
       qty: input.qty,
-      filledQty: Number(data[index]?.executedQty ?? data[index]?.dealQuantity ?? input.qty),
+      filledQty: Number(data[index]?.executedQty ?? data[index]?.dealQuantity ?? 0),
       avgFillPrice: Number(data[index]?.avgPrice ?? input.price ?? 0),
       reduceOnly: input.reduceOnly
     }));

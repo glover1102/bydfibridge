@@ -50,6 +50,25 @@ describe('BydfiClient', () => {
     expect(init.body).toBe('{"leverage":10,"symbol":"BTC-USDT","wallet":"W001"}');
   });
 
+  it('does not assume fills when placement responses omit fill fields', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      code: 200,
+      data: { orderId: '123' }
+    }))));
+
+    const client = new BydfiClient(createTestConfig());
+    await expect(client.placeOrder({
+      symbol: 'BTC-USDT',
+      side: 'buy',
+      orderType: 'MARKET',
+      qty: 0.01,
+      positionSide: 'LONG'
+    })).resolves.toMatchObject({
+      id: '123',
+      filledQty: 0
+    });
+  });
+
   it('does not sign public exchange-info requests', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ symbols: [] })));
     vi.stubGlobal('fetch', fetchMock);
