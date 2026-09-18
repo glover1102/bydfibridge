@@ -71,8 +71,11 @@ Copy `.env.example` to `.env` and set the values. Then export that file into you
 | `MAX_OPEN_POSITIONS` | no | Total concurrent positions |
 | `MAX_DAILY_LOSS_USDT` | no | Blocks new entries once daily realized PnL falls below `-limit` |
 | `MARGIN_MODE` | no | `isolated` or `cross` |
+| `DATA_DIR` | no | Persistent dedupe/trade state directory (defaults to `./data`) |
 | `BE_OFFSET_TICKS` | no | Offset for breakeven stop replacement |
 | `DISCORD_WEBHOOK_URL` | no | Optional notification webhook |
+| `WEBHOOK_RATE_LIMIT_MAX` | no | Webhook requests allowed per window (default `60`) |
+| `WEBHOOK_RATE_LIMIT_WINDOW` | no | Webhook rate-limit window (default `1 minute`) |
 
 ## BYDFi API key setup
 
@@ -190,9 +193,10 @@ npm run start
 
 1. Push this repository to GitHub.
 2. In Railway, create a new project from the GitHub repo.
-3. Set the environment variables from `.env.example`.
-4. Keep `TRADING_ENABLED=false` until you have verified symbol metadata and API permissions.
-5. Deploy. Railway uses `railway.json` with Nixpacks to build and run the app.
+3. Add a Railway volume, mount it to a persistent path (for example `/data`), and set `DATA_DIR` to that exact mount path. If `DATA_DIR` stays on the ephemeral container filesystem, dedupe and open-trade state are lost on redeploy.
+4. Set environment variables from `.env.example`. Required for production: `WEBHOOK_TOKEN`, `ADMIN_TOKEN`, `BYDFI_API_KEY`, `BYDFI_API_SECRET`, and `DATA_DIR` (plus optional `BYDFI_WALLET` if not `W001`).
+5. Keep `TRADING_ENABLED=false` until you have verified symbol metadata and API permissions.
+6. Deploy. Railway uses `railway.json` with Nixpacks to build/run (`npm run build` + `npm run start`) and health-checks `/health`.
 
 ## Endpoints
 

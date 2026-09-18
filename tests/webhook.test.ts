@@ -174,4 +174,37 @@ describe('webhook route', () => {
 
     expect(limited.statusCode).toBe(429);
   });
+
+  it('rate limits webhook endpoint', async () => {
+    const rateConfig = { ...createTestConfig(), webhookRateLimitMax: 2, webhookRateLimitWindow: '1 minute' };
+    const rateApp = createApp({
+      config: rateConfig,
+      dedupeStore: { reserve: vi.fn(() => true) },
+      orchestrator: orchestrator as never,
+      queue: { enqueue: () => undefined },
+      logStore: new LogStore(10),
+      getTradingEnabled: () => true,
+      setTradingEnabled: () => undefined,
+      getPositions: async () => [],
+      getOrders: async () => []
+    });
+
+    for (let index = 0; index < 2; index += 1) {
+      const response = await rateApp.inject({
+        method: 'POST',
+        url: '/webhook/tradingview',
+        payload: { token: 'secret', strategy: 's', signal_id: `rl-${index}`, action: 'close_all', symbol: 'BTCUSDT', order_type: 'market' }
+      });
+      expect(response.statusCode).toBe(200);
+    }
+
+    const limited = await rateApp.inject({
+      method: 'POST',
+      url: '/webhook/tradingview',
+      payload: { token: 'secret', strategy: 's', signal_id: 'rl-3', action: 'close_all', symbol: 'BTCUSDT', order_type: 'market' }
+    });
+
+    expect(limited.statusCode).toBe(429);
+    await rateApp.close();
+  });
 });
