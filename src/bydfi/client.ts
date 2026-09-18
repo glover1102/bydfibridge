@@ -270,8 +270,8 @@ export class BydfiClient implements BydfiClientLike {
 
   private redactInlineSecrets(body: string): string {
     return body.replaceAll(
-      /((?:api[-_]?key|secret|token|signature|passphrase|password)"?\s*[:=]\s*"?)([^",\s}]+)/gi,
-      '$1[REDACTED]'
+      /(^|[{[,\s])("?)(api[-_]?key|secret|token|signature|passphrase|password)\2(\s*[:=]\s*)("?)([^",\s}\]]+)\5/gi,
+      '$1$2$3$2$4$5[REDACTED]$5'
     );
   }
 

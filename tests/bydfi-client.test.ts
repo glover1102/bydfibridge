@@ -73,4 +73,23 @@ describe('BydfiClient', () => {
     expect((error as Error).message).toContain('"token":"[REDACTED]"');
     expect((error as Error).message).toContain('"apiKey":"[REDACTED]"');
   });
+
+  it('redacts quoted secret fields from non-json error bodies', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('error: "token":"abc123" "signature":"sig456"', {
+      status: 401,
+      headers: { 'content-type': 'text/plain' }
+    })));
+
+    const client = new BydfiClient({
+      bydfiApiKey: 'key',
+      bydfiApiSecret: 'secret',
+      bydfiBaseUrl: 'https://api.example.com',
+      bydfiSignatureHeader: 'X-SIGNATURE'
+    });
+
+    const error = await client.getBalance().catch((caughtError) => caughtError);
+
+    expect((error as Error).message).toContain('"token":"[REDACTED]"');
+    expect((error as Error).message).toContain('"signature":"[REDACTED]"');
+  });
 });
