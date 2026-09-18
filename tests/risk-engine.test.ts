@@ -91,7 +91,7 @@ describe('RiskEngine', () => {
     ])).toThrow(/Max open positions/);
   });
 
-  it('rejects symbols with no loaded exchange spec', () => {
+  it('rejects symbols without a configured spec', () => {
     const config = createTestConfig();
     config.symbolSpecs = {};
     const engine = new RiskEngine(config, { getDailyPnl: () => 0 });
@@ -111,6 +111,6 @@ describe('RiskEngine', () => {
       takeProfits: [],
       move_sl_to_be_after: 'none',
       reverse_on_opposite: false
-    }, { equity: 10_000, availableBalance: 2_000 }, [])).toThrow(/No symbol spec loaded/);
+    }, { equity: 10_000, availableBalance: 2_000 }, [])).toThrow(/No symbol spec configured/);
   });
 });

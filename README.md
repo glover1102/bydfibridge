@@ -61,11 +61,14 @@ Copy `.env.example` to `.env` and set the values. Then export that file into you
 | `ADMIN_TOKEN` | yes | Required for `/positions`, `/orders`, `/logs`, `/admin/*` |
 | `BYDFI_API_KEY` | yes | Read + Perpetual Trading only |
 | `BYDFI_API_SECRET` | yes | Never put this in TradingView |
+| `BYDFI_BASE_URL` | no | Defaults to `https://api.bydfi.com` |
+| `BYDFI_SIGNATURE_HEADER` | no | Signature header name override; defaults to `X-SIGNATURE` |
 | `BYDFI_WALLET` | no | Defaults to `W001` |
 | `TRADING_ENABLED` | no | Defaults to `false` |
 | `ALLOWED_SOURCE_IPS` | no | Comma-separated TradingView source IP allowlist |
 | `SYMBOL_MAP` | no | JSON override map |
-| `SYMBOL_SPECS` | no | Optional JSON override for exchange-loaded qty step + price tick metadata |
+| `SYMBOL_SPECS` | no | JSON override for qty step + price tick metadata layered on top of exchange-provided specs |
+| `SYMBOL_SPECS_REFRESH_MS` | no | Refresh interval for exchange symbol specs; defaults to `3600000`, set `0` to disable |
 | `SYMBOL_LEVERAGE_CAPS` | no | JSON per-symbol leverage caps |
 | `MAX_POSITION_SIZE` | no | JSON per-symbol base-coin caps |
 | `MAX_OPEN_POSITIONS` | no | Total concurrent positions |
@@ -176,6 +179,19 @@ npm install
 npm run dev
 ```
 
+### Pre-flight check
+
+Before enabling live trading, run the read-only BYDFi smoke test:
+
+```bash
+set -a
+source .env
+set +a
+npm run smoke
+```
+
+`npm run smoke` calls `getExchangeInfo()`, `getBalance()`, `getPositions()`, and `getOpenOrders()` in sequence and never places, modifies, or cancels orders. `WEBHOOK_TOKEN` and `ADMIN_TOKEN` can be any non-empty dummy values for this pre-flight run.
+
 ## Scripts
 
 ```bash
@@ -212,4 +228,4 @@ Protected endpoints require the `admin-token` header.
 
 ## Notes on BYDFi signing
 
-`src/bydfi/client.ts` centralizes BYDFi signing using `X-API-KEY`, `X-API-TIMESTAMP`, and `X-API-SIGNATURE`, with the signature payload assembled as `accessKey + timestamp + queryString + body`. GET requests sign an empty body, while POST requests sign the JSON request body. At startup, the service loads symbol precision/tick metadata from BYDFi `exchange_info` and then applies any optional `SYMBOL_SPECS` overrides from the environment.
+`src/bydfi/client.ts` centralizes BYDFi signing using `X-API-KEY`, `X-API-TIMESTAMP`, and a configurable signature header (`BYDFI_SIGNATURE_HEADER`, default `X-SIGNATURE`), with the signature payload assembled as `accessKey + timestamp + queryString + body`. GET requests sign the query string with an empty body, POST requests sign the JSON request body, and the service loads symbol precision/tick metadata from BYDFi `exchange_info` before applying any optional `SYMBOL_SPECS` overrides from the environment.

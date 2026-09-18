@@ -156,6 +156,46 @@ describe('webhook route', () => {
     expect(logStore.list().some((entry) => entry.message === 'Signal execution failed' && entry.context?.signalId === 'async-fail')).toBe(true);
   });
 
+  it('rejects entry signals immediately when trading is disabled', async () => {
+    const disabledApp = createApp({
+      config,
+      dedupeStore,
+      orchestrator: orchestrator as never,
+      queue,
+      logStore,
+      getTradingEnabled: () => false,
+      setTradingEnabled: () => undefined,
+      getPositions: async () => [],
+      getOrders: async () => []
+    });
+
+    const response = await disabledApp.inject({
+      method: 'POST',
+      url: '/webhook/tradingview',
+      payload: {
+        token: 'secret',
+        strategy: 's',
+        signal_id: 'disabled-entry',
+        action: 'entry',
+        side: 'long',
+        symbol: 'BTCUSDT',
+        leverage: '10',
+        qty: '0.05',
+        order_type: 'market',
+        entry: '100',
+        stop_loss: '90',
+        tp1: '110',
+        tp1_qty: '0.05'
+      }
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ error: 'Trading is disabled' });
+    expect(orchestrator.process).not.toHaveBeenCalled();
+
+    await disabledApp.close();
+  });
+
   it('rate limits admin endpoints', async () => {
     for (let index = 0; index < 30; index += 1) {
       const response = await app.inject({

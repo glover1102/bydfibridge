@@ -8,7 +8,7 @@ describe('BydfiClient', () => {
     vi.unstubAllGlobals();
   });
 
-  it('signs GET requests with query params and X-API-SIGNATURE', async () => {
+  it('signs GET requests with query params and the configured signature header', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       code: 0,
       data: { balance: '123', availableBalance: '45' }
@@ -16,7 +16,7 @@ describe('BydfiClient', () => {
     vi.stubGlobal('fetch', fetchMock);
     vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000);
 
-    const client = new BydfiClient(createTestConfig());
+    const client = new BydfiClient({ ...createTestConfig(), bydfiSignatureHeader: 'X-API-SIGNATURE' });
     await client.getBalance();
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -25,9 +25,9 @@ describe('BydfiClient', () => {
     expect(init.body).toBeUndefined();
     expect(init.headers).toMatchObject({
       'X-API-KEY': 'key',
-      'X-API-TIMESTAMP': '1700000000000'
+      'X-API-TIMESTAMP': '1700000000000',
+      'X-API-SIGNATURE': expect.any(String)
     });
-    expect((init.headers as Record<string, string>)['X-API-SIGNATURE']).toBeTruthy();
     expect((init.headers as Record<string, string>)['X-SIGNATURE']).toBeUndefined();
   });
 
@@ -82,7 +82,70 @@ describe('BydfiClient', () => {
     expect(init.headers).toEqual({ 'content-type': 'application/json' });
   });
 
-  it('surfaces full status/body on request failures', async () => {
+  it('maps SELL positions to short and normalizes negative qty', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      code: 200,
+      data: [{ symbol: 'BTC-USDT', side: 'SELL', quantity: '-0.5', entryPrice: '25000' }]
+    }))));
+
+    const client = new BydfiClient(createTestConfig());
+
+    await expect(client.getPositions()).resolves.toEqual([{
+      symbol: 'BTC-USDT',
+      side: 'short',
+      qty: 0.5,
+      entryPrice: 25000,
+      realizedPnl: 0,
+      unrealizedPnl: 0
+    }]);
+  });
+
+  it('includes the request path and response body in request errors', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"message":"bad key"}', {
+      status: 401,
+      headers: { 'content-type': 'application/json' }
+    })));
+
+    const client = new BydfiClient(createTestConfig());
+    const error = await client.getBalance().catch((caughtError) => caughtError);
+
+    expect(error).toBeInstanceOf(BydfiApiError);
+    expect((error as Error).message).toContain('/v1/fapi/account/balance');
+    expect((error as Error).message).toContain('{"message":"bad key"}');
+  });
+
+  it('redacts obvious secret fields from request error bodies', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      message: 'denied',
+      token: 'abc123',
+      apiKey: 'key-123'
+    }), {
+      status: 401,
+      headers: { 'content-type': 'application/json' }
+    })));
+
+    const client = new BydfiClient(createTestConfig());
+    const error = await client.getBalance().catch((caughtError) => caughtError);
+
+    expect((error as Error).message).toContain('"message":"denied"');
+    expect((error as Error).message).toContain('"token":"[REDACTED]"');
+    expect((error as Error).message).toContain('"apiKey":"[REDACTED]"');
+  });
+
+  it('redacts quoted secret fields from non-json error bodies', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('error: "token":"abc123" "signature":"sig456"', {
+      status: 401,
+      headers: { 'content-type': 'text/plain' }
+    })));
+
+    const client = new BydfiClient(createTestConfig());
+    const error = await client.getBalance().catch((caughtError) => caughtError);
+
+    expect((error as Error).message).toContain('"token":"[REDACTED]"');
+    expect((error as Error).message).toContain('"signature":"[REDACTED]"');
+  });
+
+  it('surfaces status and sanitized body details on request failures', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('bad signature', {
       status: 401,
       statusText: 'Unauthorized'
@@ -101,7 +164,7 @@ describe('BydfiClient', () => {
     } satisfies Partial<BydfiApiError>);
   });
 
-  it('wraps non-JSON success bodies in a BydfiApiError', async () => {
+  it('wraps non-json success bodies in a BydfiApiError', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('ok', { status: 200 })));
 
     const client = new BydfiClient(createTestConfig());

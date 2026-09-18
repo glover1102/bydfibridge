@@ -94,6 +94,11 @@ export const createApp = (deps: AppDependencies): FastifyInstance => {
         return reply.code(400).send({ error: message });
       }
 
+      if (signal.action === 'entry' && !deps.getTradingEnabled()) {
+        deps.logStore.add('warn', 'Rejected entry because trading is disabled', { signalId: signal.signal_id });
+        return reply.code(503).send({ error: 'Trading is disabled' });
+      }
+
       if (!deps.dedupeStore.reserve(signal.signal_id)) {
         deps.logStore.add('info', 'Duplicate signal ignored', { signalId: signal.signal_id });
         return reply.code(200).send({ accepted: false, signal_id: signal.signal_id, reason: 'duplicate' });

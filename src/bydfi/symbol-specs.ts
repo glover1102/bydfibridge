@@ -1,31 +1,105 @@
+import type { BydfiClientLike } from './client.js';
 import type { SymbolSpec } from '../execution/types.js';
 
-const toPositiveNumber = (value: unknown): number | undefined => {
-  const number = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
-  return Number.isFinite(number) && number > 0 ? number : undefined;
+const SYMBOL_ARRAY_KEYS = ['symbols', 'data', 'list', 'rows', 'result'] as const;
+const STEP_FIELD_CANDIDATES = ['qtyStep', 'quantityStep', 'stepSize', 'lotSize', 'quantity_step', 'volumeStep'] as const;
+const STEP_PRECISION_FIELD_CANDIDATES = ['quantityPrecision', 'qtyPrecision', 'volumePrecision', 'basePrecision'] as const;
+const PRICE_FIELD_CANDIDATES = ['priceTick', 'tickSize', 'priceStep', 'price_tick'] as const;
+const PRICE_PRECISION_FIELD_CANDIDATES = ['pricePrecision', 'quotePrecision', 'priceOrderPrecision'] as const;
+const SYMBOL_FIELD_CANDIDATES = ['symbol', 'symbolName', 'symbolCode', 'contract', 'pair'] as const;
+
+type SymbolSpecsLogger = Pick<Console, 'warn'>;
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const parsePositiveNumber = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+  return undefined;
 };
 
-const precisionToStep = (precision: unknown): number | undefined => {
-  const digits = toPositiveNumber(precision);
-  if (digits === undefined || !Number.isInteger(digits)) {
+const parseNonNegativeInteger = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
+    return value;
+  }
+  if (typeof value === 'string' && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isInteger(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+  return undefined;
+};
+
+const parsePrecisionStep = (value: unknown): number | undefined => {
+  const precision = parseNonNegativeInteger(value);
+  if (precision === undefined) {
     return undefined;
   }
-
-  return Number((10 ** -digits).toFixed(digits));
+  return Number((10 ** -precision).toFixed(precision));
 };
 
-const toSymbolSpec = (entry: Record<string, unknown>): SymbolSpec | undefined => {
-  const qtyStep = toPositiveNumber(entry.qtyStep)
-    ?? toPositiveNumber(entry.quantityStep)
-    ?? toPositiveNumber(entry.stepSize)
-    ?? toPositiveNumber(entry.volumeStep)
-    ?? precisionToStep(entry.volumePrecision)
-    ?? precisionToStep(entry.basePrecision);
-  const priceTick = toPositiveNumber(entry.priceTick)
-    ?? toPositiveNumber(entry.tickSize)
-    ?? toPositiveNumber(entry.priceStep)
-    ?? precisionToStep(entry.priceOrderPrecision)
-    ?? precisionToStep(entry.pricePrecision);
+const getFirstParsedValue = (
+  source: Record<string, unknown>,
+  fieldNames: readonly string[],
+  parser: (value: unknown) => number | undefined
+): number | undefined => {
+  for (const fieldName of fieldNames) {
+    const parsed = parser(source[fieldName]);
+    if (parsed !== undefined) {
+      return parsed;
+    }
+  }
+  return undefined;
+};
+
+const extractSymbolsArray = (payload: unknown): unknown[] => {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  if (!isRecord(payload)) {
+    return [];
+  }
+
+  for (const key of SYMBOL_ARRAY_KEYS) {
+    const candidate = payload[key];
+    if (Array.isArray(candidate)) {
+      return candidate;
+    }
+    if (isRecord(candidate)) {
+      for (const nestedKey of SYMBOL_ARRAY_KEYS) {
+        if (Array.isArray(candidate[nestedKey])) {
+          return candidate[nestedKey] as unknown[];
+        }
+      }
+    }
+  }
+
+  return [];
+};
+
+const parseSymbolName = (entry: Record<string, unknown>): string | undefined => {
+  for (const fieldName of SYMBOL_FIELD_CANDIDATES) {
+    const value = entry[fieldName];
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value.trim().toUpperCase();
+    }
+  }
+  return undefined;
+};
+
+const parseSymbolSpec = (entry: Record<string, unknown>): SymbolSpec | undefined => {
+  const qtyStep = getFirstParsedValue(entry, STEP_FIELD_CANDIDATES, parsePositiveNumber)
+    ?? getFirstParsedValue(entry, STEP_PRECISION_FIELD_CANDIDATES, parsePrecisionStep);
+  const priceTick = getFirstParsedValue(entry, PRICE_FIELD_CANDIDATES, parsePositiveNumber)
+    ?? getFirstParsedValue(entry, PRICE_PRECISION_FIELD_CANDIDATES, parsePrecisionStep);
 
   if (qtyStep === undefined || priceTick === undefined) {
     return undefined;
@@ -34,36 +108,47 @@ const toSymbolSpec = (entry: Record<string, unknown>): SymbolSpec | undefined =>
   return { qtyStep, priceTick };
 };
 
-const getExchangeEntries = (exchangeInfo: unknown): Record<string, unknown>[] => {
-  if (Array.isArray(exchangeInfo)) {
-    return exchangeInfo.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object');
-  }
-  if (!exchangeInfo || typeof exchangeInfo !== 'object') {
-    return [];
-  }
-
-  const candidates = ['symbols', 'list', 'rows', 'result', 'data']
-    .map((key) => (exchangeInfo as Record<string, unknown>)[key])
-    .find(Array.isArray);
-
-  return Array.isArray(candidates)
-    ? candidates.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object')
-    : [];
-};
+export const mergeSymbolSpecs = (
+  exchangeSymbolSpecs: Record<string, SymbolSpec>,
+  envSymbolSpecs: Record<string, SymbolSpec>
+): Record<string, SymbolSpec> => ({
+  ...exchangeSymbolSpecs,
+  ...envSymbolSpecs
+});
 
 export const loadRuntimeSymbolSpecs = (
   exchangeInfo: unknown,
-  overrides: Record<string, SymbolSpec> = {}
+  overrides: Record<string, SymbolSpec> = {},
+  logger: SymbolSpecsLogger = console
 ): Record<string, SymbolSpec> => {
-  const specs = Object.fromEntries(
-    getExchangeEntries(exchangeInfo)
-      .map((entry) => {
-        const symbol = typeof entry.symbol === 'string' ? entry.symbol.toUpperCase() : undefined;
-        const spec = toSymbolSpec(entry);
-        return symbol && spec ? [symbol, spec] : undefined;
-      })
-      .filter((entry): entry is [string, SymbolSpec] => entry !== undefined)
-  );
+  const symbolSpecs: Record<string, SymbolSpec> = {};
+  const skippedEntries: string[] = [];
 
-  return { ...specs, ...overrides };
+  extractSymbolsArray(exchangeInfo).forEach((entry, index) => {
+    if (!isRecord(entry)) {
+      skippedEntries.push(`entry#${index + 1}`);
+      return;
+    }
+
+    const symbol = parseSymbolName(entry);
+    const spec = parseSymbolSpec(entry);
+
+    if (!symbol || !spec) {
+      skippedEntries.push(symbol ?? `entry#${index + 1}`);
+      return;
+    }
+
+    symbolSpecs[symbol] = spec;
+  });
+
+  if (skippedEntries.length > 0) {
+    logger.warn(`Skipped unparseable exchange symbol specs: ${skippedEntries.join(', ')}`);
+  }
+
+  return mergeSymbolSpecs(symbolSpecs, overrides);
 };
+
+export const loadSymbolSpecsFromExchange = async (
+  client: BydfiClientLike,
+  logger: SymbolSpecsLogger = console
+): Promise<Record<string, SymbolSpec>> => loadRuntimeSymbolSpecs(await client.getExchangeInfo(), {}, logger);

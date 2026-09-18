@@ -61,7 +61,7 @@ export class RiskEngine {
   getSymbolSpec(symbol: string): SymbolSpec {
     const spec = this.config.symbolSpecs[symbol];
     if (!spec) {
-      throw new Error(`No symbol spec loaded for ${symbol}`);
+      throw new Error(`No symbol spec configured for ${symbol}`);
     }
     return spec;
   }

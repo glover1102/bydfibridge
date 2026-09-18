@@ -36,7 +36,16 @@ export interface BydfiClientLike {
 }
 
 const toPositionSide = (side: TradeSide): 'LONG' | 'SHORT' => side === 'long' ? 'LONG' : 'SHORT';
-const toTradeSide = (side: unknown): TradeSide => String(side).toUpperCase() === 'SHORT' ? 'short' : 'long';
+const toTradeSide = (side: unknown, qty?: number): TradeSide => {
+  const normalized = String(side).toUpperCase();
+  if (normalized === 'SHORT' || normalized === 'SELL') {
+    return 'short';
+  }
+  if (normalized === 'LONG' || normalized === 'BUY') {
+    return 'long';
+  }
+  return (qty ?? 0) < 0 ? 'short' : 'long';
+};
 const encoder = new TextEncoder();
 
 type HttpMethod = 'GET' | 'POST';
@@ -123,7 +132,9 @@ const signHmacSha256 = async (secret: string, payload: string): Promise<string> 
 };
 
 export class BydfiClient implements BydfiClientLike {
-  constructor(private readonly config: Pick<AppConfig, 'bydfiApiKey' | 'bydfiApiSecret' | 'bydfiBaseUrl' | 'bydfiWallet'>) {}
+  constructor(
+    private readonly config: Pick<AppConfig, 'bydfiApiKey' | 'bydfiApiSecret' | 'bydfiBaseUrl' | 'bydfiWallet' | 'bydfiSignatureHeader'>
+  ) {}
 
   async setLeverage(symbol: string, leverage: number): Promise<void> {
     await this.request('/v1/fapi/trade/leverage', {
@@ -226,14 +237,17 @@ export class BydfiClient implements BydfiClientLike {
       method: 'GET',
       params: { wallet: this.config.bydfiWallet }
     });
-    return data.map((position) => ({
-      symbol: String(position.symbol),
-      side: toTradeSide(position.positionSide ?? position.side),
-      qty: Number(position.quantity ?? position.qty ?? position.positionQty ?? position.volume ?? 0),
+    return data.map((position) => {
+      const rawQty = Number(position.quantity ?? position.qty ?? position.positionQty ?? position.volume ?? 0);
+      return {
+        symbol: String(position.symbol),
+        side: toTradeSide(position.positionSide ?? position.side, rawQty),
+        qty: Math.abs(rawQty),
       entryPrice: Number(position.entryPrice ?? position.avgPrice ?? 0),
       realizedPnl: Number(position.realizedPnl ?? position.realizedProfit ?? 0),
       unrealizedPnl: Number(position.unrealizedPnl ?? position.unPnl ?? 0)
-    })).filter((position) => position.qty > 0);
+      };
+    }).filter((position) => position.qty > 0);
   }
 
   async getOpenOrders(symbol?: string): Promise<OpenOrder[]> {
@@ -314,17 +328,13 @@ export class BydfiClient implements BydfiClientLike {
     };
 
     if (options.signed !== false) {
-      // BYDFi docs specify X-API-KEY, X-API-TIMESTAMP, and X-API-SIGNATURE headers.
-      // The signature payload is accessKey + timestamp + queryString + body, where GET
-      // requests sign queryString with an empty body and POST requests sign the JSON body
-      // with an empty queryString.
       const signature = await signHmacSha256(
         this.config.bydfiApiSecret,
         buildSignaturePayload(this.config.bydfiApiKey, timestamp, query, body)
       );
       headers['X-API-KEY'] = this.config.bydfiApiKey;
       headers['X-API-TIMESTAMP'] = timestamp;
-      headers['X-API-SIGNATURE'] = signature;
+      headers[this.config.bydfiSignatureHeader] = signature;
     }
 
     const response = await fetch(requestUrl, {
@@ -333,11 +343,12 @@ export class BydfiClient implements BydfiClientLike {
       body: method === 'GET' ? undefined : body
     });
     const responseText = await response.text();
+    const safeResponseText = this.sanitizeResponseBody(responseText);
 
     if (!response.ok) {
       throw new BydfiApiError(
-        `BYDFi request failed for ${method} ${path} with status ${response.status}: ${responseText || '<empty body>'}`,
-        { path, method, status: response.status, responseBody: responseText }
+        `BYDFi request failed for ${method} ${path} with status ${response.status}: ${safeResponseText}`,
+        { path, method, status: response.status, responseBody: safeResponseText }
       );
     }
 
@@ -346,24 +357,70 @@ export class BydfiClient implements BydfiClientLike {
       payload = responseText ? JSON.parse(responseText) as ApiEnvelope<T> | T : undefined;
     } catch {
       throw new BydfiApiError(
-        `BYDFi returned a non-JSON success response for ${method} ${path}: ${responseText || '<empty body>'}`,
-        { path, method, status: response.status, responseBody: responseText }
+        `BYDFi returned a non-JSON success response for ${method} ${path}: ${safeResponseText}`,
+        { path, method, status: response.status, responseBody: safeResponseText }
       );
     }
+
     if (!payload || typeof payload !== 'object') {
       return payload as T;
     }
     if (!('code' in payload) && !('data' in payload)) {
       return payload as T;
     }
-    if ((payload.code !== undefined
-      && !['0', '200', 'success'].includes(String(payload.code).toLowerCase()))) {
+    if (payload.code !== undefined && !['0', '200', 'success'].includes(String(payload.code).toLowerCase())) {
       throw new BydfiApiError(
-        `${payload.message ?? payload.msg ?? 'Unknown BYDFi API error'}: ${responseText}`,
-        { path, method, status: response.status, responseBody: responseText }
+        `${payload.message ?? payload.msg ?? 'Unknown BYDFi API error'}: ${safeResponseText}`,
+        { path, method, status: response.status, responseBody: safeResponseText }
       );
     }
     return (payload.data ?? payload) as T;
+  }
+
+  private sanitizeResponseBody(body: string): string {
+    const trimmed = body
+      .replaceAll(/[\u0000-\u001F\u007F]+/g, ' ')
+      .replaceAll(/\s+/g, ' ')
+      .trim();
+    if (!trimmed) {
+      return '<empty response body>';
+    }
+
+    const redacted = this.redactInlineSecrets(this.stringifyRedactedJson(trimmed));
+    return redacted.length > 500 ? `${redacted.slice(0, 500)}...` : redacted;
+  }
+
+  private stringifyRedactedJson(body: string): string {
+    try {
+      return JSON.stringify(this.redactSensitiveFields(JSON.parse(body)));
+    } catch {
+      return body;
+    }
+  }
+
+  private redactSensitiveFields(value: unknown): unknown {
+    if (Array.isArray(value)) {
+      return value.map((entry) => this.redactSensitiveFields(entry));
+    }
+    if (!value || typeof value !== 'object') {
+      return value;
+    }
+
+    return Object.fromEntries(Object.entries(value).map(([key, entryValue]) => [
+      key,
+      this.isSensitiveKey(key) ? '[REDACTED]' : this.redactSensitiveFields(entryValue)
+    ]));
+  }
+
+  private redactInlineSecrets(body: string): string {
+    return body.replaceAll(
+      /(^|[{[,\s])("?)(api[-_]?key|secret|token|signature|passphrase|password)\2(\s*[:=]\s*)("?)([^",\s}\]]+)\5/gi,
+      '$1$2$3$2$4$5[REDACTED]$5'
+    );
+  }
+
+  private isSensitiveKey(key: string): boolean {
+    return /^(?:api[-_]?key|secret|token|signature|passphrase|password)$/i.test(key);
   }
 }
 
