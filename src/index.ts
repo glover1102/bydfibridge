@@ -17,7 +17,9 @@ const dedupeStore = new PersistentDedupeStore(config.dedupeStoreFile, config.ded
 const notifier = new DiscordNotifier(config.discordWebhookUrl);
 const bydfiClient = new BydfiClient(config);
 const envSymbolSpecs = { ...config.symbolSpecs };
+let exchangeSymbolSpecs: typeof config.symbolSpecs = {};
 const queue = createExecutionQueue();
+const requestedTradingEnabled = config.tradingEnabled;
 
 const tradingState = { enabled: config.tradingEnabled };
 const isTradingEnabled = (): boolean => tradingState.enabled;
@@ -48,6 +50,7 @@ const tradeManager = new TradeManager(
   (symbol) => riskEngine.getSymbolSpec(symbol).priceTick
 );
 let tradeManagerStarted = false;
+let symbolSpecAutoDisabledTrading = false;
 
 const ensureTradeManagerStarted = (): void => {
   if (tradeManagerStarted) {
@@ -58,9 +61,18 @@ const ensureTradeManagerStarted = (): void => {
 };
 
 const refreshSymbolSpecs = async (): Promise<void> => {
-  const exchangeSymbolSpecs = await loadSymbolSpecsFromExchange(bydfiClient, app.log);
+  const nextExchangeSymbolSpecs = await loadSymbolSpecsFromExchange(bydfiClient, app.log);
+  if (Object.keys(nextExchangeSymbolSpecs).length > 0) {
+    exchangeSymbolSpecs = nextExchangeSymbolSpecs;
+  }
+
   config.symbolSpecs = mergeSymbolSpecs(exchangeSymbolSpecs, envSymbolSpecs);
   if (Object.keys(config.symbolSpecs).length > 0) {
+    if (symbolSpecAutoDisabledTrading && requestedTradingEnabled) {
+      setTradingEnabled(true);
+      symbolSpecAutoDisabledTrading = false;
+      app.log.info('Trading re-enabled after symbol specs were loaded');
+    }
     ensureTradeManagerStarted();
   }
 };
@@ -85,6 +97,7 @@ const start = async (): Promise<void> => {
   }
   if (Object.keys(config.symbolSpecs).length === 0) {
     setTradingEnabled(false);
+    symbolSpecAutoDisabledTrading = requestedTradingEnabled;
     app.log.warn('No symbol specs available from BYDFi exchange info or SYMBOL_SPECS overrides; trading has been disabled until specs are configured or refreshed');
   }
   scheduleSymbolSpecRefresh();

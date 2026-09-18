@@ -8,7 +8,11 @@
 import { loadConfig } from '../src/config/env.js';
 import { BydfiClient } from '../src/bydfi/client.js';
 
-const config = loadConfig();
+const config = loadConfig({
+  ...process.env,
+  WEBHOOK_TOKEN: process.env.WEBHOOK_TOKEN ?? 'dummy-webhook-token',
+  ADMIN_TOKEN: process.env.ADMIN_TOKEN ?? 'dummy-admin-token'
+});
 const client = new BydfiClient(config);
 
 const truncate = (value: string, limit = 500): string => value.length > limit ? `${value.slice(0, limit)}...` : value;
