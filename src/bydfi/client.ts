@@ -272,8 +272,9 @@ export class BydfiClient implements BydfiClientLike {
         method: 'GET',
         params: { wallet: this.config.bydfiWallet, symbol, orderId }
       });
-      const order = normalizeResponseCollection(data)
-        .find((candidate) => String(candidate.orderId ?? candidate.id ?? '') === orderId);
+      const orders = normalizeResponseCollection(data);
+      const order = orders.find((candidate) => String(candidate.orderId ?? candidate.id ?? '') === orderId)
+        ?? (orders.length === 1 ? orders[0] : undefined);
       if (order) {
         return normalizeOrder(order, symbol, orderId);
       }

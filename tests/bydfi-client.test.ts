@@ -119,4 +119,21 @@ describe('BydfiClient', () => {
 
     expect(fetchMock.mock.calls[1]?.[0]).toBe('https://api.example.com/v1/fapi/trade/history_order?orderId=123&symbol=BTC-USDT&wallet=W001');
   });
+
+  it('accepts a single history-order record even if the id field is omitted', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 200, data: [] })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        code: 200,
+        data: { symbol: 'BTC-USDT', side: 'BUY', quantity: '0.01', dealQuantity: '0.01', avgPrice: '25000' }
+      })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new BydfiClient(createTestConfig());
+    await expect(client.getOrder('BTC-USDT', '123')).resolves.toMatchObject({
+      id: '123',
+      symbol: 'BTC-USDT',
+      side: 'buy'
+    });
+  });
 });
