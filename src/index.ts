@@ -47,10 +47,22 @@ const tradeManager = new TradeManager(
   notifier,
   (symbol) => riskEngine.getSymbolSpec(symbol).priceTick
 );
+let tradeManagerStarted = false;
+
+const ensureTradeManagerStarted = (): void => {
+  if (tradeManagerStarted) {
+    return;
+  }
+  tradeManager.start();
+  tradeManagerStarted = true;
+};
 
 const refreshSymbolSpecs = async (): Promise<void> => {
   const exchangeSymbolSpecs = await loadSymbolSpecsFromExchange(bydfiClient, app.log);
   config.symbolSpecs = mergeSymbolSpecs(exchangeSymbolSpecs, envSymbolSpecs);
+  if (Object.keys(config.symbolSpecs).length > 0) {
+    ensureTradeManagerStarted();
+  }
 };
 
 const scheduleSymbolSpecRefresh = (): void => {
@@ -76,7 +88,9 @@ const start = async (): Promise<void> => {
     app.log.warn('No symbol specs available from BYDFi exchange info or SYMBOL_SPECS overrides; trading has been disabled until specs are configured or refreshed');
   }
   scheduleSymbolSpecRefresh();
-  tradeManager.start();
+  if (Object.keys(config.symbolSpecs).length > 0) {
+    ensureTradeManagerStarted();
+  }
   await app.listen({ host: '0.0.0.0', port: config.port });
 };
 
