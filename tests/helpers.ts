@@ -32,6 +32,8 @@ export const createTestConfig = (): AppConfig => ({
   dedupeStoreFile: '/tmp/bydfibridge-tests/dedupe-store.json',
   tradeStoreFile: '/tmp/bydfibridge-tests/trade-store.json',
   logStoreLimit: 50,
+  webhookRateLimitMax: 60,
+  webhookRateLimitWindow: '1 minute',
   discordWebhookUrl: undefined
 });
 
