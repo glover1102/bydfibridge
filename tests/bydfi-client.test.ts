@@ -37,6 +37,19 @@ describe('BydfiClient', () => {
       .toBe('key123symbol=BTC-USDT{"foo":"bar"}');
   });
 
+  it('sends POST params in a sorted JSON body instead of the query string', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ code: 200, data: {} })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new BydfiClient(createTestConfig());
+    await client.setLeverage('BTC-USDT', 10);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api.example.com/v1/fapi/trade/leverage');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe('{"leverage":10,"symbol":"BTC-USDT","wallet":"W001"}');
+  });
+
   it('does not sign public exchange-info requests', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ symbols: [] })));
     vi.stubGlobal('fetch', fetchMock);
@@ -67,5 +80,43 @@ describe('BydfiClient', () => {
         responseBody: 'bad signature'
       })
     } satisfies Partial<BydfiApiError>);
+  });
+
+  it('wraps non-JSON success bodies in a BydfiApiError', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('ok', { status: 200 })));
+
+    const client = new BydfiClient(createTestConfig());
+
+    await expect(client.getBalance()).rejects.toMatchObject({
+      name: 'BydfiApiError',
+      details: expect.objectContaining({
+        path: '/v1/fapi/account/balance',
+        method: 'GET',
+        status: 200,
+        responseBody: 'ok'
+      })
+    } satisfies Partial<BydfiApiError>);
+  });
+
+  it('falls back to history_order when an order is no longer open', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 200, data: [] })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        code: 200,
+        data: [{ orderId: '123', symbol: 'BTC-USDT', side: 'BUY', quantity: '0.01', dealQuantity: '0.01', avgPrice: '25000' }]
+      })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const client = new BydfiClient(createTestConfig());
+    await expect(client.getOrder('BTC-USDT', '123')).resolves.toMatchObject({
+      id: '123',
+      symbol: 'BTC-USDT',
+      side: 'buy',
+      qty: 0.01,
+      filledQty: 0.01,
+      avgFillPrice: 25000
+    });
+
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('https://api.example.com/v1/fapi/trade/history_order?orderId=123&symbol=BTC-USDT&wallet=W001');
   });
 });

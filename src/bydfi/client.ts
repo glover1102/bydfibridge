@@ -71,6 +71,45 @@ export const serializeParams = (params: Record<string, unknown>): string => Obje
 export const buildSignaturePayload = (accessKey: string, timestamp: string, query: string, body: string): string =>
   `${accessKey}${timestamp}${query}${body}`;
 
+const sortValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) {
+    return value.map(sortValue);
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, entry]) => entry !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, sortValue(entry)])
+  );
+};
+
+const normalizeResponseCollection = (payload: unknown): Array<Record<string, unknown>> => {
+  if (Array.isArray(payload)) {
+    return payload.filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object');
+  }
+  if (payload && typeof payload === 'object') {
+    return [payload as Record<string, unknown>];
+  }
+  return [];
+};
+
+const normalizeOrder = (order: Record<string, unknown>, fallbackSymbol?: string, fallbackOrderId?: string): PlacedOrder => ({
+  id: String(order.orderId ?? order.id ?? fallbackOrderId ?? crypto.randomUUID()),
+  symbol: String(order.symbol ?? fallbackSymbol ?? ''),
+  side: String(order.side).toLowerCase() === 'buy' ? 'buy' : 'sell',
+  type: String(order.type ?? order.orderType ?? 'MARKET'),
+  price: order.price ? Number(order.price) : undefined,
+  triggerPrice: order.triggerPrice ? Number(order.triggerPrice) : order.stopPrice ? Number(order.stopPrice) : undefined,
+  qty: Number(order.quantity ?? order.origQty ?? order.qty ?? 0),
+  filledQty: Number(order.executedQty ?? order.dealQuantity ?? order.qty ?? 0),
+  avgFillPrice: Number(order.avgPrice ?? 0),
+  reduceOnly: Boolean(order.reduceOnly)
+});
+
 const signHmacSha256 = async (secret: string, payload: string): Promise<string> => {
   const key = await crypto.subtle.importKey(
     'raw',
@@ -189,11 +228,11 @@ export class BydfiClient implements BydfiClientLike {
     });
     return data.map((position) => ({
       symbol: String(position.symbol),
-      side: toTradeSide(position.positionSide),
-      qty: Number(position.quantity ?? position.qty ?? position.positionQty ?? 0),
+      side: toTradeSide(position.positionSide ?? position.side),
+      qty: Number(position.quantity ?? position.qty ?? position.positionQty ?? position.volume ?? 0),
       entryPrice: Number(position.entryPrice ?? position.avgPrice ?? 0),
-      realizedPnl: Number(position.realizedPnl ?? 0),
-      unrealizedPnl: Number(position.unrealizedPnl ?? 0)
+      realizedPnl: Number(position.realizedPnl ?? position.realizedProfit ?? 0),
+      unrealizedPnl: Number(position.unrealizedPnl ?? position.unPnl ?? 0)
     })).filter((position) => position.qty > 0);
   }
 
@@ -207,45 +246,39 @@ export class BydfiClient implements BydfiClientLike {
       symbol: String(order.symbol),
       side: String(order.side).toLowerCase() === 'buy' ? 'buy' : 'sell',
       type: String(order.type ?? order.orderType),
-      triggerPrice: order.triggerPrice ? Number(order.triggerPrice) : undefined,
+      triggerPrice: order.triggerPrice ? Number(order.triggerPrice) : order.stopPrice ? Number(order.stopPrice) : undefined,
       price: order.price ? Number(order.price) : undefined,
-      qty: Number(order.quantity ?? order.qty ?? 0),
+      qty: Number(order.quantity ?? order.origQty ?? order.qty ?? 0),
       status: order.status ? String(order.status) : undefined,
       reduceOnly: Boolean(order.reduceOnly)
     }));
   }
 
   async getBalance(): Promise<BalanceSnapshot> {
-    const data = await this.request<Record<string, unknown>>('/v1/fapi/account/balance', {
+    const data = await this.request<Record<string, unknown> | Array<Record<string, unknown>>>('/v1/fapi/account/balance', {
       method: 'GET',
       params: { wallet: this.config.bydfiWallet }
     });
+    const balance = Array.isArray(data) ? data[0] ?? {} : data;
     return {
-      equity: Number(data.equity ?? data.balance ?? data.totalEquity ?? 0),
-      availableBalance: Number(data.availableBalance ?? data.available ?? data.availableMargin ?? data.balance ?? 0)
+      equity: Number(balance.equity ?? balance.balance ?? balance.totalEquity ?? 0),
+      availableBalance: Number(balance.availableBalance ?? balance.available ?? balance.availableMargin ?? balance.balance ?? 0)
     };
   }
 
   async getOrder(symbol: string, orderId: string): Promise<PlacedOrder | undefined> {
-    const data = await this.request<Record<string, unknown>>('/v1/fapi/trade/open_order', {
-      method: 'GET',
-      params: { wallet: this.config.bydfiWallet, symbol, orderId }
-    });
-    if (!data || Object.keys(data).length === 0) {
-      return undefined;
+    for (const path of ['/v1/fapi/trade/open_order', '/v1/fapi/trade/history_order']) {
+      const data = await this.request<Record<string, unknown> | Array<Record<string, unknown>>>(path, {
+        method: 'GET',
+        params: { wallet: this.config.bydfiWallet, symbol, orderId }
+      });
+      const order = normalizeResponseCollection(data)
+        .find((candidate) => String(candidate.orderId ?? candidate.id ?? '') === orderId);
+      if (order) {
+        return normalizeOrder(order, symbol, orderId);
+      }
     }
-    return {
-      id: String(data.orderId ?? data.id ?? orderId),
-      symbol,
-      side: String(data.side).toLowerCase() === 'buy' ? 'buy' : 'sell',
-      type: String(data.type ?? 'MARKET'),
-      price: data.price ? Number(data.price) : undefined,
-      triggerPrice: data.triggerPrice ? Number(data.triggerPrice) : undefined,
-      qty: Number(data.quantity ?? data.qty ?? 0),
-      filledQty: Number(data.executedQty ?? data.dealQuantity ?? data.qty ?? 0),
-      avgFillPrice: Number(data.avgPrice ?? 0),
-      reduceOnly: Boolean(data.reduceOnly)
-    };
+    return undefined;
   }
 
   async getExchangeInfo(): Promise<Record<string, unknown>> {
@@ -271,8 +304,9 @@ export class BydfiClient implements BydfiClientLike {
     const method = options.method ?? 'POST';
     const params = options.params ?? {};
     const timestamp = Date.now().toString();
-    const query = serializeParams(params);
-    const body = method === 'GET' ? '' : JSON.stringify(params);
+    const normalizedParams = sortValue(params) as Record<string, unknown>;
+    const query = method === 'GET' ? serializeParams(normalizedParams) : '';
+    const body = method === 'GET' ? '' : JSON.stringify(normalizedParams);
     const requestUrl = `${this.config.bydfiBaseUrl}${path}${query ? `?${query}` : ''}`;
     const headers: Record<string, string> = {
       'content-type': 'application/json'
@@ -281,7 +315,8 @@ export class BydfiClient implements BydfiClientLike {
     if (options.signed !== false) {
       // BYDFi docs specify X-API-KEY, X-API-TIMESTAMP, and X-API-SIGNATURE headers.
       // The signature payload is accessKey + timestamp + queryString + body, where GET
-      // requests sign an empty body and POST requests sign the JSON body.
+      // requests sign queryString with an empty body and POST requests sign the JSON body
+      // with an empty queryString.
       const signature = await signHmacSha256(
         this.config.bydfiApiSecret,
         buildSignaturePayload(this.config.bydfiApiKey, timestamp, query, body)
@@ -305,14 +340,23 @@ export class BydfiClient implements BydfiClientLike {
       );
     }
 
-    const payload = responseText ? JSON.parse(responseText) as ApiEnvelope<T> | T : undefined;
+    let payload: ApiEnvelope<T> | T | undefined;
+    try {
+      payload = responseText ? JSON.parse(responseText) as ApiEnvelope<T> | T : undefined;
+    } catch {
+      throw new BydfiApiError(
+        `BYDFi returned a non-JSON success response for ${method} ${path}: ${responseText || '<empty body>'}`,
+        { path, method, status: response.status, responseBody: responseText }
+      );
+    }
     if (!payload || typeof payload !== 'object') {
       return payload as T;
     }
     if (!('code' in payload) && !('data' in payload)) {
       return payload as T;
     }
-    if ((payload.code !== undefined && String(payload.code) !== '0' && String(payload.code).toLowerCase() !== 'success')) {
+    if ((payload.code !== undefined
+      && !['0', '200', 'success'].includes(String(payload.code).toLowerCase()))) {
       throw new BydfiApiError(
         `${payload.message ?? payload.msg ?? 'Unknown BYDFi API error'}: ${responseText}`,
         { path, method, status: response.status, responseBody: responseText }
