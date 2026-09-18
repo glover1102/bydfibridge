@@ -61,10 +61,11 @@ Copy `.env.example` to `.env` and set the values. Then export that file into you
 | `ADMIN_TOKEN` | yes | Required for `/positions`, `/orders`, `/logs`, `/admin/*` |
 | `BYDFI_API_KEY` | yes | Read + Perpetual Trading only |
 | `BYDFI_API_SECRET` | yes | Never put this in TradingView |
+| `BYDFI_WALLET` | no | Defaults to `W001` |
 | `TRADING_ENABLED` | no | Defaults to `false` |
 | `ALLOWED_SOURCE_IPS` | no | Comma-separated TradingView source IP allowlist |
 | `SYMBOL_MAP` | no | JSON override map |
-| `SYMBOL_SPECS` | no | JSON of qty step + price tick metadata |
+| `SYMBOL_SPECS` | no | Optional JSON override for exchange-loaded qty step + price tick metadata |
 | `SYMBOL_LEVERAGE_CAPS` | no | JSON per-symbol leverage caps |
 | `MAX_POSITION_SIZE` | no | JSON per-symbol base-coin caps |
 | `MAX_OPEN_POSITIONS` | no | Total concurrent positions |
@@ -179,8 +180,11 @@ npm run build
 npm run typecheck
 npm run lint
 npm test
+npm run smoke
 npm run start
 ```
+
+`npm run smoke` calls BYDFi balance, positions, and exchange-info endpoints with the current environment variables so you can validate auth/signing before enabling trading.
 
 ## Railway deploy
 
@@ -204,4 +208,4 @@ Protected endpoints require the `admin-token` header.
 
 ## Notes on BYDFi signing
 
-`src/bydfi/client.ts` centralizes BYDFi V2 signing for the `/api/v2/fapi/...` endpoints using `X-API-KEY`, `X-API-TIMESTAMP`, and `X-SIGNATURE`, with the signature payload assembled as `accessKey + timestamp + queryString + body` per the current BYDFi V2 documentation. Before enabling live trading, still validate the exact endpoint and auth contract against the latest BYDFi docs in case the exchange revises its API.
+`src/bydfi/client.ts` centralizes BYDFi signing using `X-API-KEY`, `X-API-TIMESTAMP`, and `X-API-SIGNATURE`, with the signature payload assembled as `accessKey + timestamp + queryString + body`. GET requests sign an empty body, while POST requests sign the JSON request body. At startup, the service loads symbol precision/tick metadata from BYDFi `exchange_info` and then applies any optional `SYMBOL_SPECS` overrides from the environment.

@@ -39,6 +39,38 @@ const toPositionSide = (side: TradeSide): 'LONG' | 'SHORT' => side === 'long' ? 
 const toTradeSide = (side: unknown): TradeSide => String(side).toUpperCase() === 'SHORT' ? 'short' : 'long';
 const encoder = new TextEncoder();
 
+type HttpMethod = 'GET' | 'POST';
+
+interface RequestOptions {
+  method?: HttpMethod;
+  params?: Record<string, unknown>;
+  signed?: boolean;
+}
+
+export class BydfiApiError extends Error {
+  constructor(
+    message: string,
+    readonly details: {
+      path: string;
+      method: HttpMethod;
+      status?: number;
+      responseBody?: string;
+    }
+  ) {
+    super(message);
+    this.name = 'BydfiApiError';
+  }
+}
+
+export const serializeParams = (params: Record<string, unknown>): string => Object.entries(params)
+  .filter(([, value]) => value !== undefined)
+  .sort(([left], [right]) => left.localeCompare(right))
+  .map(([key, value]) => `${key}=${typeof value === 'object' ? JSON.stringify(value) : String(value)}`)
+  .join('&');
+
+export const buildSignaturePayload = (accessKey: string, timestamp: string, query: string, body: string): string =>
+  `${accessKey}${timestamp}${query}${body}`;
+
 const signHmacSha256 = async (secret: string, payload: string): Promise<string> => {
   const key = await crypto.subtle.importKey(
     'raw',
@@ -52,27 +84,39 @@ const signHmacSha256 = async (secret: string, payload: string): Promise<string> 
 };
 
 export class BydfiClient implements BydfiClientLike {
-  constructor(private readonly config: Pick<AppConfig, 'bydfiApiKey' | 'bydfiApiSecret' | 'bydfiBaseUrl'>) {}
+  constructor(private readonly config: Pick<AppConfig, 'bydfiApiKey' | 'bydfiApiSecret' | 'bydfiBaseUrl' | 'bydfiWallet'>) {}
 
   async setLeverage(symbol: string, leverage: number): Promise<void> {
-    await this.request('/api/v2/fapi/position/set_leverage', { symbol, leverage });
+    await this.request('/v1/fapi/trade/leverage', {
+      params: { wallet: this.config.bydfiWallet, symbol, leverage }
+    });
   }
 
   async setMarginMode(symbol: string, marginMode: 'isolated' | 'cross'): Promise<void> {
-    await this.request('/api/v2/fapi/position/set_margin_mode', { symbol, marginMode });
+    await this.request('/v1/fapi/user_data/margin_type', {
+      params: {
+        contractType: 'FUTURE',
+        wallet: this.config.bydfiWallet,
+        symbol,
+        marginType: marginMode.toUpperCase()
+      }
+    });
   }
 
   async placeOrder(input: PlaceOrderInput): Promise<PlacedOrder> {
     const data = await this.request<Record<string, unknown>>('/api/v2/fapi/trade/place_order', {
-      symbol: input.symbol,
-      side: input.side,
-      type: input.orderType,
-      quantity: input.qty,
-      price: input.price,
-      triggerPrice: input.triggerPrice,
-      reduceOnly: input.reduceOnly,
-      closePosition: input.closePosition,
-      positionSide: input.positionSide
+      params: {
+        wallet: this.config.bydfiWallet,
+        symbol: input.symbol,
+        side: input.side.toUpperCase(),
+        type: input.orderType,
+        quantity: input.qty,
+        price: input.price,
+        triggerPrice: input.triggerPrice,
+        reduceOnly: input.reduceOnly,
+        closePosition: input.closePosition,
+        positionSide: input.positionSide
+      }
     });
     return {
       id: String(data.orderId ?? data.id ?? crypto.randomUUID()),
@@ -82,7 +126,7 @@ export class BydfiClient implements BydfiClientLike {
       price: input.price,
       triggerPrice: input.triggerPrice,
       qty: input.qty,
-      filledQty: Number(data.executedQty ?? input.qty),
+      filledQty: Number(data.executedQty ?? data.dealQuantity ?? input.qty),
       avgFillPrice: Number(data.avgPrice ?? input.price ?? 0),
       reduceOnly: input.reduceOnly
     };
@@ -90,7 +134,20 @@ export class BydfiClient implements BydfiClientLike {
 
   async batchPlaceOrders(inputs: PlaceOrderInput[]): Promise<PlacedOrder[]> {
     const data = await this.request<Array<Record<string, unknown>>>('/api/v2/fapi/trade/batch_place_order', {
-      orders: inputs
+      params: {
+        wallet: this.config.bydfiWallet,
+        orders: inputs.map((input) => ({
+          symbol: input.symbol,
+          side: input.side.toUpperCase(),
+          type: input.orderType,
+          quantity: input.qty,
+          price: input.price,
+          triggerPrice: input.triggerPrice,
+          reduceOnly: input.reduceOnly,
+          closePosition: input.closePosition,
+          positionSide: input.positionSide
+        }))
+      }
     });
     return inputs.map((input, index) => ({
       id: String(data[index]?.orderId ?? data[index]?.id ?? crypto.randomUUID()),
@@ -100,30 +157,40 @@ export class BydfiClient implements BydfiClientLike {
       price: input.price,
       triggerPrice: input.triggerPrice,
       qty: input.qty,
-      filledQty: Number(data[index]?.executedQty ?? input.qty),
+      filledQty: Number(data[index]?.executedQty ?? data[index]?.dealQuantity ?? input.qty),
       avgFillPrice: Number(data[index]?.avgPrice ?? input.price ?? 0),
       reduceOnly: input.reduceOnly
     }));
   }
 
   async cancelOrder(symbol: string, orderId: string): Promise<void> {
-    await this.request('/api/v2/fapi/trade/cancel_order', { symbol, orderId });
+    await this.request('/api/v2/fapi/trade/cancel_order', { params: { wallet: this.config.bydfiWallet, symbol, orderId } });
   }
 
   async cancelAllOrders(symbol: string): Promise<void> {
-    await this.request('/api/v2/fapi/trade/cancel_all', { symbol });
+    await this.request('/api/v2/fapi/trade/cancel_all', { params: { wallet: this.config.bydfiWallet, symbol } });
   }
 
   async modifyOrder(symbol: string, orderId: string, changes: Partial<PlaceOrderInput>): Promise<void> {
-    await this.request('/api/v2/fapi/trade/modify_order', { symbol, orderId, ...changes });
+    await this.request('/api/v2/fapi/trade/modify_order', {
+      params: {
+        wallet: this.config.bydfiWallet,
+        symbol,
+        orderId,
+        ...changes
+      }
+    });
   }
 
   async getPositions(): Promise<PositionSnapshot[]> {
-    const data = await this.request<Array<Record<string, unknown>>>('/api/v2/fapi/position/list', {});
+    const data = await this.request<Array<Record<string, unknown>>>('/v1/fapi/trade/positions', {
+      method: 'GET',
+      params: { wallet: this.config.bydfiWallet }
+    });
     return data.map((position) => ({
       symbol: String(position.symbol),
       side: toTradeSide(position.positionSide),
-      qty: Number(position.quantity ?? position.qty ?? 0),
+      qty: Number(position.quantity ?? position.qty ?? position.positionQty ?? 0),
       entryPrice: Number(position.entryPrice ?? position.avgPrice ?? 0),
       realizedPnl: Number(position.realizedPnl ?? 0),
       unrealizedPnl: Number(position.unrealizedPnl ?? 0)
@@ -131,7 +198,10 @@ export class BydfiClient implements BydfiClientLike {
   }
 
   async getOpenOrders(symbol?: string): Promise<OpenOrder[]> {
-    const data = await this.request<Array<Record<string, unknown>>>('/api/v2/fapi/trade/open_orders', symbol ? { symbol } : {});
+    const data = await this.request<Array<Record<string, unknown>>>('/v1/fapi/trade/open_order', {
+      method: 'GET',
+      params: { wallet: this.config.bydfiWallet, symbol }
+    });
     return data.map((order) => ({
       id: String(order.orderId ?? order.id),
       symbol: String(order.symbol),
@@ -146,15 +216,21 @@ export class BydfiClient implements BydfiClientLike {
   }
 
   async getBalance(): Promise<BalanceSnapshot> {
-    const data = await this.request<Record<string, unknown>>('/api/v2/fapi/account/balance', {});
+    const data = await this.request<Record<string, unknown>>('/v1/fapi/account/balance', {
+      method: 'GET',
+      params: { wallet: this.config.bydfiWallet }
+    });
     return {
-      equity: Number(data.equity ?? data.balance ?? 0),
-      availableBalance: Number(data.availableBalance ?? data.available ?? data.balance ?? 0)
+      equity: Number(data.equity ?? data.balance ?? data.totalEquity ?? 0),
+      availableBalance: Number(data.availableBalance ?? data.available ?? data.availableMargin ?? data.balance ?? 0)
     };
   }
 
   async getOrder(symbol: string, orderId: string): Promise<PlacedOrder | undefined> {
-    const data = await this.request<Record<string, unknown>>('/api/v2/fapi/trade/order', { symbol, orderId });
+    const data = await this.request<Record<string, unknown>>('/v1/fapi/trade/open_order', {
+      method: 'GET',
+      params: { wallet: this.config.bydfiWallet, symbol, orderId }
+    });
     if (!data || Object.keys(data).length === 0) {
       return undefined;
     }
@@ -166,14 +242,17 @@ export class BydfiClient implements BydfiClientLike {
       price: data.price ? Number(data.price) : undefined,
       triggerPrice: data.triggerPrice ? Number(data.triggerPrice) : undefined,
       qty: Number(data.quantity ?? data.qty ?? 0),
-      filledQty: Number(data.executedQty ?? data.qty ?? 0),
+      filledQty: Number(data.executedQty ?? data.dealQuantity ?? data.qty ?? 0),
       avgFillPrice: Number(data.avgPrice ?? 0),
       reduceOnly: Boolean(data.reduceOnly)
     };
   }
 
   async getExchangeInfo(): Promise<Record<string, unknown>> {
-    return this.request<Record<string, unknown>>('/api/v2/fapi/public/exchange_info', {});
+    return this.request<Record<string, unknown>>('/v1/fapi/market/exchange_info', {
+      method: 'GET',
+      signed: false
+    });
   }
 
   async closePositionMarket(symbol: string, side: TradeSide, qty: number): Promise<PlacedOrder> {
@@ -188,30 +267,45 @@ export class BydfiClient implements BydfiClientLike {
     });
   }
 
-  private async request<T>(path: string, params: Record<string, unknown>): Promise<T> {
+  private async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    const method = options.method ?? 'POST';
+    const params = options.params ?? {};
     const timestamp = Date.now().toString();
-    const query = this.serialize(params);
-    const body = JSON.stringify(params);
-    // BYDFi V2 docs specify X-API-KEY, X-API-TIMESTAMP, and X-API-SIGNATURE headers,
-    // with the signature computed over accessKey + timestamp + queryString + body.
-    const signature = await signHmacSha256(this.config.bydfiApiSecret, `${this.config.bydfiApiKey}${timestamp}${query}${body}`);
+    const query = serializeParams(params);
+    const body = method === 'GET' ? '' : JSON.stringify(params);
+    const requestUrl = `${this.config.bydfiBaseUrl}${path}${query ? `?${query}` : ''}`;
+    const headers: Record<string, string> = {
+      'content-type': 'application/json'
+    };
 
-    const response = await fetch(`${this.config.bydfiBaseUrl}${path}`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'X-API-KEY': this.config.bydfiApiKey,
-        'X-API-TIMESTAMP': timestamp,
-        'X-SIGNATURE': signature
-      },
-      body
-    });
-
-    if (!response.ok) {
-      throw new Error(`BYDFi request failed with status ${response.status}`);
+    if (options.signed !== false) {
+      // BYDFi docs specify X-API-KEY, X-API-TIMESTAMP, and X-API-SIGNATURE headers.
+      // The signature payload is accessKey + timestamp + queryString + body, where GET
+      // requests sign an empty body and POST requests sign the JSON body.
+      const signature = await signHmacSha256(
+        this.config.bydfiApiSecret,
+        buildSignaturePayload(this.config.bydfiApiKey, timestamp, query, body)
+      );
+      headers['X-API-KEY'] = this.config.bydfiApiKey;
+      headers['X-API-TIMESTAMP'] = timestamp;
+      headers['X-API-SIGNATURE'] = signature;
     }
 
-    const payload = await response.json() as ApiEnvelope<T> | T;
+    const response = await fetch(requestUrl, {
+      method,
+      headers,
+      body: method === 'GET' ? undefined : body
+    });
+    const responseText = await response.text();
+
+    if (!response.ok) {
+      throw new BydfiApiError(
+        `BYDFi request failed for ${method} ${path} with status ${response.status}: ${responseText || '<empty body>'}`,
+        { path, method, status: response.status, responseBody: responseText }
+      );
+    }
+
+    const payload = responseText ? JSON.parse(responseText) as ApiEnvelope<T> | T : undefined;
     if (!payload || typeof payload !== 'object') {
       return payload as T;
     }
@@ -219,17 +313,12 @@ export class BydfiClient implements BydfiClientLike {
       return payload as T;
     }
     if ((payload.code !== undefined && String(payload.code) !== '0' && String(payload.code).toLowerCase() !== 'success')) {
-      throw new Error(payload.message ?? payload.msg ?? 'Unknown BYDFi API error');
+      throw new BydfiApiError(
+        `${payload.message ?? payload.msg ?? 'Unknown BYDFi API error'}: ${responseText}`,
+        { path, method, status: response.status, responseBody: responseText }
+      );
     }
     return (payload.data ?? payload) as T;
-  }
-
-  private serialize(params: Record<string, unknown>): string {
-    return Object.entries(params)
-      .filter(([, value]) => value !== undefined)
-      .sort(([left], [right]) => left.localeCompare(right))
-      .map(([key, value]) => `${key}=${typeof value === 'object' ? JSON.stringify(value) : String(value)}`)
-      .join('&');
   }
 }
 

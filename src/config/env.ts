@@ -11,6 +11,7 @@ const envSchema = z.object({
   BYDFI_API_KEY: z.string().min(1),
   BYDFI_API_SECRET: z.string().min(1),
   BYDFI_BASE_URL: z.string().url().default('https://api.bydfi.com'),
+  BYDFI_WALLET: z.string().min(1).default('W001'),
   TRADING_ENABLED: z.string().optional().default('false'),
   ALLOWED_SOURCE_IPS: z.string().optional().default(''),
   SYMBOL_MAP: z.string().optional().default('{}'),
@@ -55,6 +56,7 @@ export interface AppConfig {
   bydfiApiKey: string;
   bydfiApiSecret: string;
   bydfiBaseUrl: string;
+  bydfiWallet: string;
   tradingEnabled: boolean;
   allowedSourceIps: string[];
   symbolMap: Record<string, string>;
@@ -92,6 +94,7 @@ export const loadConfig = (env: NodeJS.ProcessEnv = process.env): AppConfig => {
     bydfiApiKey: parsed.BYDFI_API_KEY,
     bydfiApiSecret: parsed.BYDFI_API_SECRET,
     bydfiBaseUrl: parsed.BYDFI_BASE_URL,
+    bydfiWallet: parsed.BYDFI_WALLET,
     tradingEnabled: parseBoolean(parsed.TRADING_ENABLED),
     allowedSourceIps: parsed.ALLOWED_SOURCE_IPS.split(',').map((ip) => ip.trim()).filter(Boolean),
     symbolMap: parseRecord<string>(parsed.SYMBOL_MAP, 'SYMBOL_MAP'),
