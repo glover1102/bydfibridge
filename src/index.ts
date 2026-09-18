@@ -1,5 +1,6 @@
 import { loadConfig } from './config/env.js';
 import { BydfiClient } from './bydfi/client.js';
+import { loadRuntimeSymbolSpecs } from './bydfi/symbol-specs.js';
 import { RiskEngine } from './risk/risk-engine.js';
 import { TradeStore } from './store/trade-store.js';
 import { PersistentDedupeStore } from './store/dedupe-store.js';
@@ -45,9 +46,16 @@ const tradeManager = new TradeManager(
   notifier,
   (symbol) => riskEngine.getSymbolSpec(symbol).priceTick
 );
-tradeManager.start();
 
 const start = async (): Promise<void> => {
+  const exchangeInfo = await bydfiClient.getExchangeInfo();
+  const exchangeSymbolSpecs = loadRuntimeSymbolSpecs(exchangeInfo);
+  const symbolSpecs = { ...exchangeSymbolSpecs, ...config.symbolSpecs };
+  if (Object.keys(symbolSpecs).length === 0) {
+    throw new Error('BYDFi exchange_info did not return any symbol specs');
+  }
+  config.symbolSpecs = symbolSpecs;
+  tradeManager.start();
   await app.listen({ host: '0.0.0.0', port: config.port });
 };
 

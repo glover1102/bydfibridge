@@ -10,6 +10,7 @@ export const createTestConfig = (): AppConfig => ({
   bydfiApiKey: 'key',
   bydfiApiSecret: 'secret2',
   bydfiBaseUrl: 'https://api.example.com',
+  bydfiWallet: 'W001',
   tradingEnabled: true,
   allowedSourceIps: [],
   symbolMap: { BTCUSD: 'BTC-USDT' },

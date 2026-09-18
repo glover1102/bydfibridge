@@ -90,4 +90,27 @@ describe('RiskEngine', () => {
       { symbol: 'XRP-USDT', side: 'short', qty: 1, entryPrice: 10 }
     ])).toThrow(/Max open positions/);
   });
+
+  it('rejects symbols with no loaded exchange spec', () => {
+    const config = createTestConfig();
+    config.symbolSpecs = {};
+    const engine = new RiskEngine(config, { getDailyPnl: () => 0 });
+
+    expect(() => engine.prepareTrade({
+      token: 'secret',
+      strategy: 'test',
+      signal_id: 'missing-spec',
+      action: 'entry',
+      side: 'long',
+      symbol: 'BTCUSDT',
+      leverage: 10,
+      qty: 0.1,
+      order_type: 'market',
+      entry: 100,
+      stop_loss: 90,
+      takeProfits: [],
+      move_sl_to_be_after: 'none',
+      reverse_on_opposite: false
+    }, { equity: 10_000, availableBalance: 2_000 }, [])).toThrow(/No symbol spec loaded/);
+  });
 });
