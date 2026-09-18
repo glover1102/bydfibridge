@@ -7,6 +7,7 @@ const STEP_PRECISION_FIELD_CANDIDATES = ['quantityPrecision', 'qtyPrecision', 'v
 const PRICE_FIELD_CANDIDATES = ['priceTick', 'tickSize', 'priceStep', 'price_tick'] as const;
 const PRICE_PRECISION_FIELD_CANDIDATES = ['pricePrecision', 'quotePrecision'] as const;
 const SYMBOL_FIELD_CANDIDATES = ['symbol', 'symbolName', 'symbolCode', 'contract', 'pair'] as const;
+type SymbolSpecsLogger = Pick<Console, 'warn'>;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -114,7 +115,10 @@ export const mergeSymbolSpecs = (
   ...envSymbolSpecs
 });
 
-export const loadSymbolSpecsFromExchange = async (client: BydfiClientLike): Promise<Record<string, SymbolSpec>> => {
+export const loadSymbolSpecsFromExchange = async (
+  client: BydfiClientLike,
+  logger: SymbolSpecsLogger = console
+): Promise<Record<string, SymbolSpec>> => {
   const payload = await client.getExchangeInfo();
   const entries = extractSymbolsArray(payload);
   const symbolSpecs: Record<string, SymbolSpec> = {};
@@ -138,7 +142,7 @@ export const loadSymbolSpecsFromExchange = async (client: BydfiClientLike): Prom
   });
 
   if (skippedEntries.length > 0) {
-    console.warn(`Skipped unparseable exchange symbol specs: ${skippedEntries.join(', ')}`);
+    logger.warn(`Skipped unparseable exchange symbol specs: ${skippedEntries.join(', ')}`);
   }
 
   return symbolSpecs;

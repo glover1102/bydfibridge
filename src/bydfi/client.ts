@@ -208,7 +208,7 @@ export class BydfiClient implements BydfiClientLike {
     });
 
     if (!response.ok) {
-      const responseBody = this.truncateResponseBody(await response.text());
+      const responseBody = this.sanitizeResponseBody(await response.text());
       throw new Error(`BYDFi request failed for ${path} with status ${response.status}: ${responseBody}`);
     }
 
@@ -233,8 +233,11 @@ export class BydfiClient implements BydfiClientLike {
       .join('&');
   }
 
-  private truncateResponseBody(body: string): string {
-    const trimmed = body.trim();
+  private sanitizeResponseBody(body: string): string {
+    const trimmed = body
+      .replaceAll(/[\u0000-\u001F\u007F]+/g, ' ')
+      .replaceAll(/\s+/g, ' ')
+      .trim();
     if (!trimmed) {
       return '<empty response body>';
     }

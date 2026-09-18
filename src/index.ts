@@ -49,7 +49,7 @@ const tradeManager = new TradeManager(
 );
 
 const refreshSymbolSpecs = async (): Promise<void> => {
-  const exchangeSymbolSpecs = await loadSymbolSpecsFromExchange(bydfiClient);
+  const exchangeSymbolSpecs = await loadSymbolSpecsFromExchange(bydfiClient, app.log);
   config.symbolSpecs = mergeSymbolSpecs(exchangeSymbolSpecs, envSymbolSpecs);
 };
 
@@ -70,6 +70,9 @@ const start = async (): Promise<void> => {
     await refreshSymbolSpecs();
   } catch (error) {
     app.log.warn({ err: error }, 'Failed to load symbol specs from BYDFi exchange info; continuing with env specs only');
+  }
+  if (Object.keys(config.symbolSpecs).length === 0) {
+    app.log.warn('No symbol specs available from BYDFi exchange info or SYMBOL_SPECS overrides; matching trades will be rejected');
   }
   scheduleSymbolSpecRefresh();
   tradeManager.start();
