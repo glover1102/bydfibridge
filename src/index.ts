@@ -49,7 +49,8 @@ const tradeManager = new TradeManager(
 
 const start = async (): Promise<void> => {
   const exchangeInfo = await bydfiClient.getExchangeInfo();
-  const symbolSpecs = loadRuntimeSymbolSpecs(exchangeInfo, config.symbolSpecs);
+  const exchangeSymbolSpecs = loadRuntimeSymbolSpecs(exchangeInfo);
+  const symbolSpecs = { ...exchangeSymbolSpecs, ...config.symbolSpecs };
   if (Object.keys(symbolSpecs).length === 0) {
     throw new Error('BYDFi exchange_info did not return any symbol specs');
   }

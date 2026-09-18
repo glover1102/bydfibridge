@@ -143,7 +143,7 @@ export class BydfiClient implements BydfiClientLike {
   }
 
   async placeOrder(input: PlaceOrderInput): Promise<PlacedOrder> {
-    const data = await this.request<Record<string, unknown>>('/api/v2/fapi/trade/place_order', {
+    const data = await this.request<Record<string, unknown>>('/v2/fapi/trade/place_order', {
       params: {
         wallet: this.config.bydfiWallet,
         symbol: input.symbol,
@@ -172,7 +172,7 @@ export class BydfiClient implements BydfiClientLike {
   }
 
   async batchPlaceOrders(inputs: PlaceOrderInput[]): Promise<PlacedOrder[]> {
-    const data = await this.request<Array<Record<string, unknown>>>('/api/v2/fapi/trade/batch_place_order', {
+    const data = await this.request<Array<Record<string, unknown>>>('/v2/fapi/trade/batch_place_order', {
       params: {
         wallet: this.config.bydfiWallet,
         orders: inputs.map((input) => ({
@@ -203,15 +203,15 @@ export class BydfiClient implements BydfiClientLike {
   }
 
   async cancelOrder(symbol: string, orderId: string): Promise<void> {
-    await this.request('/api/v2/fapi/trade/cancel_order', { params: { wallet: this.config.bydfiWallet, symbol, orderId } });
+    await this.request('/v2/fapi/trade/cancel_order', { params: { wallet: this.config.bydfiWallet, symbol, orderId } });
   }
 
   async cancelAllOrders(symbol: string): Promise<void> {
-    await this.request('/api/v2/fapi/trade/cancel_all', { params: { wallet: this.config.bydfiWallet, symbol } });
+    await this.request('/v2/fapi/trade/cancel_all_order', { params: { wallet: this.config.bydfiWallet, symbol } });
   }
 
   async modifyOrder(symbol: string, orderId: string, changes: Partial<PlaceOrderInput>): Promise<void> {
-    await this.request('/api/v2/fapi/trade/modify_order', {
+    await this.request('/v2/fapi/trade/edit_order', {
       params: {
         wallet: this.config.bydfiWallet,
         symbol,
