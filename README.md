@@ -63,6 +63,7 @@ Copy `.env.example` to `.env` and set the values. Then export that file into you
 | `BYDFI_API_SECRET` | yes | Never put this in TradingView |
 | `BYDFI_BASE_URL` | no | Defaults to `https://api.bydfi.com` |
 | `BYDFI_SIGNATURE_HEADER` | no | Signature header name override; defaults to `X-SIGNATURE` |
+| `BYDFI_WALLET` | no | Defaults to `W001` |
 | `TRADING_ENABLED` | no | Defaults to `false` |
 | `ALLOWED_SOURCE_IPS` | no | Comma-separated TradingView source IP allowlist |
 | `SYMBOL_MAP` | no | JSON override map |
@@ -73,8 +74,11 @@ Copy `.env.example` to `.env` and set the values. Then export that file into you
 | `MAX_OPEN_POSITIONS` | no | Total concurrent positions |
 | `MAX_DAILY_LOSS_USDT` | no | Blocks new entries once daily realized PnL falls below `-limit` |
 | `MARGIN_MODE` | no | `isolated` or `cross` |
+| `DATA_DIR` | no | Persistent dedupe/trade state directory (defaults to `./data`) |
 | `BE_OFFSET_TICKS` | no | Offset for breakeven stop replacement |
 | `DISCORD_WEBHOOK_URL` | no | Optional notification webhook |
+| `WEBHOOK_RATE_LIMIT_MAX` | no | Webhook requests allowed per window (default `60`) |
+| `WEBHOOK_RATE_LIMIT_WINDOW` | no | Webhook rate-limit window (default `1 minute`) |
 
 ## BYDFi API key setup
 
@@ -199,13 +203,16 @@ npm run smoke
 npm run start
 ```
 
+`npm run smoke` calls BYDFi balance, positions, and exchange-info endpoints with the current environment variables so you can validate auth/signing before enabling trading.
+
 ## Railway deploy
 
 1. Push this repository to GitHub.
 2. In Railway, create a new project from the GitHub repo.
-3. Set the environment variables from `.env.example`.
-4. Keep `TRADING_ENABLED=false` until you have verified symbol metadata and API permissions.
-5. Deploy. Railway uses `railway.json` with Nixpacks to build and run the app.
+3. Add a Railway volume, mount it to a persistent path (for example `/data`), and set `DATA_DIR` to that exact mount path. If `DATA_DIR` stays on the ephemeral container filesystem, dedupe and open-trade state are lost on redeploy.
+4. Set environment variables from `.env.example`. Required for production: `WEBHOOK_TOKEN`, `ADMIN_TOKEN`, `BYDFI_API_KEY`, `BYDFI_API_SECRET`, and `DATA_DIR` (plus optional `BYDFI_WALLET` if not `W001`).
+5. Keep `TRADING_ENABLED=false` until you have verified symbol metadata and API permissions.
+6. Deploy. Railway uses `railway.json` with Nixpacks to build/run (`npm run build` + `npm run start`) and health-checks `/health`.
 
 ## Endpoints
 
@@ -221,4 +228,4 @@ Protected endpoints require the `admin-token` header.
 
 ## Notes on BYDFi signing
 
-`src/bydfi/client.ts` centralizes BYDFi V2 signing for the `/api/v2/fapi/...` endpoints using `X-API-KEY`, `X-API-TIMESTAMP`, and a configurable signature header (`BYDFI_SIGNATURE_HEADER`, default `X-SIGNATURE`), with the signature payload assembled as `accessKey + timestamp + queryString + body`. Before enabling live trading, still validate the exact endpoint and auth contract against the latest BYDFi docs in case the exchange revises its API.
+`src/bydfi/client.ts` centralizes BYDFi signing using `X-API-KEY`, `X-API-TIMESTAMP`, and a configurable signature header (`BYDFI_SIGNATURE_HEADER`, default `X-SIGNATURE`), with the signature payload assembled as `accessKey + timestamp + queryString + body`. GET requests sign the query string with an empty body, POST requests sign the JSON request body, and the service loads symbol precision/tick metadata from BYDFi `exchange_info` before applying any optional `SYMBOL_SPECS` overrides from the environment.

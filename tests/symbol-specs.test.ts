@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { loadSymbolSpecsFromExchange, mergeSymbolSpecs } from '../src/bydfi/symbol-specs.js';
+import { loadRuntimeSymbolSpecs, loadSymbolSpecsFromExchange, mergeSymbolSpecs } from '../src/bydfi/symbol-specs.js';
 import type { BydfiClientLike } from '../src/bydfi/client.js';
 
 const createClient = (exchangeInfo: Record<string, unknown>): BydfiClientLike => ({
@@ -25,7 +25,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('loadSymbolSpecsFromExchange', () => {
+describe('symbol spec loading', () => {
   it('parses step-based exchange payloads', async () => {
     const symbolSpecs = await loadSymbolSpecsFromExchange(createClient({
       data: {
@@ -49,6 +49,18 @@ describe('loadSymbolSpecsFromExchange', () => {
 
     expect(symbolSpecs).toEqual({
       'ETH-USDT': { qtyStep: 0.001, priceTick: 0.01 }
+    });
+  });
+
+  it('parses runtime symbol specs from exchange info precision fields', () => {
+    expect(loadRuntimeSymbolSpecs({
+      symbols: [
+        { symbol: 'BTC-USDT', volumePrecision: 3, priceOrderPrecision: 1 },
+        { symbol: 'ETH-USDT', qtyStep: '0.01', priceTick: '0.05' }
+      ]
+    })).toEqual({
+      'BTC-USDT': { qtyStep: 0.001, priceTick: 0.1 },
+      'ETH-USDT': { qtyStep: 0.01, priceTick: 0.05 }
     });
   });
 
@@ -81,6 +93,15 @@ describe('loadSymbolSpecsFromExchange', () => {
     )).toEqual({
       'BTC-USDT': { qtyStep: 0.001, priceTick: 0.1 },
       'ETH-USDT': { qtyStep: 0.01, priceTick: 0.01 }
+    });
+  });
+
+  it('applies env overrides after loading exchange specs', () => {
+    expect(loadRuntimeSymbolSpecs(
+      { symbols: [{ symbol: 'BTC-USDT', volumePrecision: 3, priceOrderPrecision: 1 }] },
+      { 'BTC-USDT': { qtyStep: 0.005, priceTick: 0.5 } }
+    )).toEqual({
+      'BTC-USDT': { qtyStep: 0.005, priceTick: 0.5 }
     });
   });
 });

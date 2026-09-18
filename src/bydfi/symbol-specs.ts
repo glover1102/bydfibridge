@@ -1,12 +1,13 @@
 import type { BydfiClientLike } from './client.js';
 import type { SymbolSpec } from '../execution/types.js';
 
-const SYMBOL_ARRAY_KEYS = ['symbols', 'data', 'list'] as const;
-const STEP_FIELD_CANDIDATES = ['qtyStep', 'quantityStep', 'stepSize', 'lotSize', 'quantity_step'] as const;
+const SYMBOL_ARRAY_KEYS = ['symbols', 'data', 'list', 'rows', 'result'] as const;
+const STEP_FIELD_CANDIDATES = ['qtyStep', 'quantityStep', 'stepSize', 'lotSize', 'quantity_step', 'volumeStep'] as const;
 const STEP_PRECISION_FIELD_CANDIDATES = ['quantityPrecision', 'qtyPrecision', 'volumePrecision', 'basePrecision'] as const;
 const PRICE_FIELD_CANDIDATES = ['priceTick', 'tickSize', 'priceStep', 'price_tick'] as const;
-const PRICE_PRECISION_FIELD_CANDIDATES = ['pricePrecision', 'quotePrecision'] as const;
+const PRICE_PRECISION_FIELD_CANDIDATES = ['pricePrecision', 'quotePrecision', 'priceOrderPrecision'] as const;
 const SYMBOL_FIELD_CANDIDATES = ['symbol', 'symbolName', 'symbolCode', 'contract', 'pair'] as const;
+
 type SymbolSpecsLogger = Pick<Console, 'warn'>;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -42,7 +43,7 @@ const parsePrecisionStep = (value: unknown): number | undefined => {
   if (precision === undefined) {
     return undefined;
   }
-  return 10 ** -precision;
+  return Number((10 ** -precision).toFixed(precision));
 };
 
 const getFirstParsedValue = (
@@ -88,7 +89,7 @@ const parseSymbolName = (entry: Record<string, unknown>): string | undefined => 
   for (const fieldName of SYMBOL_FIELD_CANDIDATES) {
     const value = entry[fieldName];
     if (typeof value === 'string' && value.trim().length > 0) {
-      return value.trim();
+      return value.trim().toUpperCase();
     }
   }
   return undefined;
@@ -115,16 +116,15 @@ export const mergeSymbolSpecs = (
   ...envSymbolSpecs
 });
 
-export const loadSymbolSpecsFromExchange = async (
-  client: BydfiClientLike,
+export const loadRuntimeSymbolSpecs = (
+  exchangeInfo: unknown,
+  overrides: Record<string, SymbolSpec> = {},
   logger: SymbolSpecsLogger = console
-): Promise<Record<string, SymbolSpec>> => {
-  const payload = await client.getExchangeInfo();
-  const entries = extractSymbolsArray(payload);
+): Record<string, SymbolSpec> => {
   const symbolSpecs: Record<string, SymbolSpec> = {};
   const skippedEntries: string[] = [];
 
-  entries.forEach((entry, index) => {
+  extractSymbolsArray(exchangeInfo).forEach((entry, index) => {
     if (!isRecord(entry)) {
       skippedEntries.push(`entry#${index + 1}`);
       return;
@@ -145,5 +145,10 @@ export const loadSymbolSpecsFromExchange = async (
     logger.warn(`Skipped unparseable exchange symbol specs: ${skippedEntries.join(', ')}`);
   }
 
-  return symbolSpecs;
+  return mergeSymbolSpecs(symbolSpecs, overrides);
 };
+
+export const loadSymbolSpecsFromExchange = async (
+  client: BydfiClientLike,
+  logger: SymbolSpecsLogger = console
+): Promise<Record<string, SymbolSpec>> => loadRuntimeSymbolSpecs(await client.getExchangeInfo(), {}, logger);
